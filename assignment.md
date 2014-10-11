@@ -36,7 +36,7 @@ The calling user-level thread ends its execution. You can assume that user appli
 
 ### 2. Scheduling of user-level threads in `uthread` library ###
 
-Recall that user-level threads should be mapped (scheduled) to kernel threads to run on the CPU(s). The `uthread` library should implement "many to many mapping" method to map user threads to up to max_number_of_klt kernel threads. 
+Recall that user-level threads should be mapped (scheduled) to kernel threads to run on the CPU(s). The `uthread` library should implement "many to many mapping" method to map user threads to up to `max_number_of_klt` kernel threads. 
 
 The `uthread` library should implement a customized non-preemptive, cooperative, fair algorithm when scheduling user threads to the kernel thread, which is described as follows: when a kernel thread becomes available (for example, because yielding or ending of a user thread) and several user threads are ready to run, the thread that has run on the CPU for the smallest amount of time should be picked to run on the kernel thread. If there are multiple such ready threads of the same running time, the FCFS algorithm is used to break the tie. 
 
