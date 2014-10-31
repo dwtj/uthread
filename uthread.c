@@ -12,42 +12,54 @@
 
 
 /* Define custom data structures. ************************************************/
+
 typedef struct {
 	void (*run_func)();
 	ucontext_t context;
 	struct timeval running_time;
-} uthread_record_t;
+} uthread_rec_t;
+
+
+
+/* Declare helper functions. *****************************************************/
+
+uthread_rec_t _new_uthread_rec(void (*run_func)());
+uthread_rec_t _sleeping_uthread_rec();
+int _uthread_rec_priority(const void* key1, const void* key2);
+
 
 
 
 /* Define file-global variables. *************************************************/
 
 Heap _waiting_threads = NULL;
-int _max_number_of_klt;
+int _num_klt;
+int _max_num_klt;
 struct timeval* thread_start_times;
 sem_t _mutex;
 
 
 
-/* Define primary functions. *****************************************************/
+/* Define primary public functions. **********************************************/
 
-void system_init(int max_number_of_klt) {
-	uthread_init(max_number_of_klt);
+void system_init(int max_num_klt) {
+	uthread_init(max_num_klt);
 }
 
 
-void uthread_init(int max_number_of_klt)
+void uthread_init(int max_num_klt)
 {
 	// To prevent this function from being called twice:
 	assert(_waiting_threads == NULL);
 
 	// The highest priority uthread record (i.e. the on with the lowest running time)
 	// will be at top of the `heap`. Thus, the heap is bottom-heavy w.r.t. running time.
-	_waiting_threads = HEAPinit(uthread_record_priority, NULL);
+	_waiting_threads = HEAPinit(_uthread_rec_priority, NULL);
 
 	// Initialize other globals.
-	_max_number_of_klt = max_number_of_klt;
-	thread_start_times = malloc(_max_number_of_klt * sizeof(struct timeval));
+	_num_klt = 0;
+	_max_num_klt = max_num_klt;
+	thread_start_times = malloc(_max_num_klt * sizeof(struct timeval));
 	sem_init(&_mutex, 0, 1);
 }
 
@@ -55,7 +67,22 @@ void uthread_init(int max_number_of_klt)
 int uthread_create(void (*run_func)())
 {
 	sem_wait(&_mutex);
-	// TODO
+
+	if (_num_klt < _max_num_klt)
+	{
+		// Make a pthread to run this function immediately.
+		assert(HEAPsize(_waiting_threads) == 0);
+
+		assert(false);  // TODO: not implemented error
+	}
+	else
+	{
+		// Add the new uthread record to the heap.
+		uthread_rec_t* rec = malloc(sizeof(uthread_rec_t));
+		*rec = _new_uthread_rec(run_func);
+		HEAPinsert(_waiting_threads, (const void *) rec);
+	}
+
 	sem_post(&_mutex);
 }
 
@@ -63,8 +90,12 @@ int uthread_create(void (*run_func)())
 void uthread_yield()
 {
 	sem_wait(&_mutex);
+
+	assert(false);  // TODO: not implemented error
 	// TODO: everything
 	/*
+	// Check if a uthread can use this kthread. If so, pop the uthread from the
+	// heap and use this kthread. Else, destroy the kthread.
 	struct rusage temp;
 	// Identify which thread will be used.
 	// It should probably be stored as a pthread attribute.
@@ -80,13 +111,26 @@ void uthread_yield()
 void uthread_exit()
 {
 	sem_wait(&_mutex);
+	// Check if a uthread can use this kthread. If so, pop the uthread from the
+	// heap and use this kthread. Else, destroy the kthread.
 	// TODO
 	sem_post(&_mutex);
 }
 
 
 
-/* Define helper functions. ******************************************************/
+/* Define primary helper functions. **********************************************/
+
+bool _uthread_handoff() {
+
+}
+
+
+
+
+
+
+/* Define minor helper functions. ************************************************/
 
 int long_cmp(long a, long b)
 {
@@ -120,40 +164,40 @@ struct timeval timeval_diff(struct timeval fst, struct timeval snd)
 
 
 /**
- * Interprets `key1` and `key2` as pointers to `uthread_record_t` objects, and
+ * Interprets `key1` and `key2` as pointers to `uthread_rec_t` objects, and
  * compares them. The comparison is based on the running time of the two records.
  * In particular, given the two records, the record with the smaller running time will
  * have the greater priority.
  */
-int uthread_record_priority(const void* key1, const void* key2)
+int _uthread_rec_priority(const void* key1, const void* key2)
 {
-	const uthread_record_t* rec1 = key1;
-	const uthread_record_t* rec2 = key2;
+	const uthread_rec_t* rec1 = key1;
+	const uthread_rec_t* rec2 = key2;
 
 	int cmp = timeval_cmp(rec1->running_time, rec2->running_time);
 	return -cmp;
 }
 
 
-bool _is_sleeping_uthread(uthread_record_t rec) {
+bool _is_sleeping_uthread_rec(uthread_rec_t rec) {
 	return rec.run_func == NULL;
 }
 
 
-bool _is_new_uthread(uthread_record_t rec) {
-	return !_is_sleeping_uthread(rec);
+bool _is_new_uthread_rec(uthread_rec_t rec) {
+	return !_is_sleeping_uthread_rec(rec);
 }
 
 
-uthread_record_t _new_uthread(void (*run_func)())
+uthread_rec_t _new_uthread_rec(void (*run_func)())
 {
-	uthread_record_t rv = { .run_func = run_func };
+	uthread_rec_t rv = { .run_func = run_func, .running_time = 0 };
 	return rv;
 }
 
 
-uthread_record_t _sleeping_uthread()
+uthread_rec_t _sleeping_uthread_rec()
 {
-	uthread_record_t rv = { .run_func = NULL, .running_time = 0 };
+	uthread_rec_t rv = { .run_func = NULL };
 	return rv;
 }
