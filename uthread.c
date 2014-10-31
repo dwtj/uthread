@@ -1,6 +1,9 @@
 #include <stdlib.h>
+#include <semaphore.h>
 
 #include "lib/heap.h"
+
+#include "uthread.h"
 
 
 /* Define custom data structures. ************************************************/
@@ -23,9 +26,19 @@ int uthread_record_cmp(const void* key1, const void* key2) {
 
 
 /* Define file-global variables. *************************************************/
-Heap waiting_threads;
 
-void system_init(int max_number_of_klt)
+Heap waiting_threads;
+sem_t mutex;
+
+
+
+/* Define primary functions. *****************************************************/
+
+void system_init(int max_number_of_klt) {
+	uthread_init(max_number_of_klt);
+}
+
+void uthread_init(int max_number_of_klt)
 {
 	waiting_threads = HEAPinit(uthread_record_cmp, NULL);
 }
@@ -44,3 +57,7 @@ void uthread_exit()
 {
 	// TODO
 }
+
+
+
+/* Define helper functions. ******************************************************/
