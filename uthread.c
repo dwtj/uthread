@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <pthread.h>
 
 #include "lib/heap.h"
 
@@ -20,6 +21,14 @@ typedef struct {
 } uthread_rec_t;
 
 
+typedef struct {
+	pthread_t pthread;
+	pthread_attr_t attr;
+	struct timeval initial_utime;
+	bool active;
+} kthread_rec_t;
+
+
 
 /* Declare helper functions. *****************************************************/
 
@@ -32,10 +41,10 @@ int _uthread_rec_priority(const void* key1, const void* key2);
 
 /* Define file-global variables. *************************************************/
 
-Heap _waiting_threads = NULL;
+Heap _waiting_uthreads = NULL;
 int _num_klt;
 int _max_num_klt;
-struct timeval* thread_start_times;
+kthread_rec_t* _kthreads;
 sem_t _mutex;
 
 
@@ -49,17 +58,22 @@ void system_init(int max_num_klt) {
 
 void uthread_init(int max_num_klt)
 {
-	// To prevent this function from being called twice:
-	assert(_waiting_threads == NULL);
+	assert(_waiting_uthreads == NULL);  // Function must only be called once.
 
 	// The highest priority uthread record (i.e. the on with the lowest running time)
 	// will be at top of the `heap`. Thus, the heap is bottom-heavy w.r.t. running time.
-	_waiting_threads = HEAPinit(_uthread_rec_priority, NULL);
+	_waiting_uthreads = HEAPinit(_uthread_rec_priority, NULL);
+
+	// Allocate memory for each `kthread_rec_t` and mark each of them as not active.
+	_kthreads = malloc(_max_num_klt * sizeof(kthread_rec_t));
+	kthread_rec_t not_active_kthread = { .active = false };
+	for (int i = 0; i < _max_num_klt; i++) {
+		_kthreads[i] = not_active_kthread;
+	}
 
 	// Initialize other globals.
 	_num_klt = 0;
 	_max_num_klt = max_num_klt;
-	thread_start_times = malloc(_max_num_klt * sizeof(struct timeval));
 	sem_init(&_mutex, 0, 1);
 }
 
@@ -71,20 +85,36 @@ int uthread_create(void (*run_func)())
 	if (_num_klt < _max_num_klt)
 	{
 		// Make a pthread to run this function immediately.
-		assert(HEAPsize(_waiting_threads) == 0);
+		assert(HEAPsize(_waiting_uthreads) == 0);
+
+		// Find the first kthread space which is not active:
+		kthread_rec_t* kthread = NULL;
+		for (int idx = 0; idx < _max_num_klt; idx++) {
+			if (_kthreads[idx].active == false) {
+				kthread = _kthreads + idx;
+				break;
+			}
+		}
+		assert(kthread != NULL);
 
 		assert(false);  // TODO: not implemented error
+
+		// TODO: create uthread
+		// _run_on(uthread, kthread);
 	}
 	else
 	{
 		// Add the new uthread record to the heap.
 		uthread_rec_t* rec = malloc(sizeof(uthread_rec_t));
 		*rec = _new_uthread_rec(run_func);
-		HEAPinsert(_waiting_threads, (const void *) rec);
+		HEAPinsert(_waiting_uthreads, (const void *) rec);
 	}
 
 	sem_post(&_mutex);
 }
+
+
+
 
 
 void uthread_yield()
@@ -92,17 +122,6 @@ void uthread_yield()
 	sem_wait(&_mutex);
 
 	assert(false);  // TODO: not implemented error
-	// TODO: everything
-	/*
-	// Check if a uthread can use this kthread. If so, pop the uthread from the
-	// heap and use this kthread. Else, destroy the kthread.
-	struct rusage temp;
-	// Identify which thread will be used.
-	// It should probably be stored as a pthread attribute.
-	klt_id = 0
-	getrusage(RUSAGE_THREAD, &temp);
-	thread_start_times[klt_id] = temp.ru_utime
-	*/
 
 	sem_post(&_mutex);
 }
@@ -113,7 +132,9 @@ void uthread_exit()
 	sem_wait(&_mutex);
 	// Check if a uthread can use this kthread. If so, pop the uthread from the
 	// heap and use this kthread. Else, destroy the kthread.
-	// TODO
+
+	assert(false);  // TODO: not implemented error
+
 	sem_post(&_mutex);
 }
 
@@ -121,10 +142,37 @@ void uthread_exit()
 
 /* Define primary helper functions. **********************************************/
 
-bool _uthread_handoff() {
-
+/**
+ * Interprets the `arg` to be a `uthread_rec_t*` and executes its `run_func()`.
+ */
+void* _run_uthread(void* uthread_rec) {
+	uthread_rec_t* rec = uthread_rec;
+	rec->run_func();
+	uthread_exit();
 }
 
+
+/**
+ * Run the given user thread on the given kernel thread.
+ */
+bool _run_uthread_on(uthread_rec_t* ut, kthread_rec_t* kt)
+{
+	assert(kt->active == false);
+	// If the given kthread is not active, then make a new kthread there.
+	pthread_attr_init(&(kt->attr));
+	int err = pthread_create(&(kt->pthread), &(kt->attr), _run_uthread, ut);
+	assert (err == 0);  // Cannot handle `pthread` creation errors.
+	
+	struct rusage ru;
+	assert(getrusage(RUSAGE_THREAD, &ru) == 0);  // Only available on linux.
+	kt->initial_utime = ru.ru_utime;
+}
+
+
+bool _handoff_kthread_to(kthread_rec_t* kt, uthread_rec_t ut)
+{
+	assert(false);  // TODO: not implemented error
+}
 
 
 
@@ -135,6 +183,19 @@ bool _uthread_handoff() {
 int long_cmp(long a, long b)
 {
 	return (a > b) - (a < b);
+}
+
+
+struct timeval timeval_add(struct timeval fst, struct timeval snd)
+{
+	long usec = fst.tv_usec + snd.tv_usec;
+	long sec = fst.tv_sec + snd.tv_usec;
+
+	const long NUM_USEC_IN_SEC = 1000000;
+	sec += usec / NUM_USEC_IN_SEC;
+	usec %= NUM_USEC_IN_SEC;
+	
+	struct timeval rv = { .tv_sec = sec, .tv_usec = usec };
 }
 
 
