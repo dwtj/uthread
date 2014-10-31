@@ -55,15 +55,7 @@ void uthread_init(int max_number_of_klt)
 int uthread_create(void (*run_func)())
 {
 	sem_wait(&_mutex);
-	struct rusage temp;
-	/*
-	// Identify which thread will be used.
-	// It should probably be stored as a pthread attribute.
-	klt_id = 0
-	getrusage(RUSAGE_THREAD, &temp);
-	thread_start_times[klt_id] = temp.ru_utime
 	// TODO
-	*/
 	sem_post(&_mutex);
 }
 
@@ -71,7 +63,16 @@ int uthread_create(void (*run_func)())
 void uthread_yield()
 {
 	sem_wait(&_mutex);
-	// TODO
+	// TODO: everything
+	/*
+	struct rusage temp;
+	// Identify which thread will be used.
+	// It should probably be stored as a pthread attribute.
+	klt_id = 0
+	getrusage(RUSAGE_THREAD, &temp);
+	thread_start_times[klt_id] = temp.ru_utime
+	*/
+
 	sem_post(&_mutex);
 }
 
