@@ -11,26 +11,42 @@
 #include "uthread.h"
 
 
+/* Define private directives. ****************************************************/
+
+#define UCONTEXT_STACK_SIZE 16384
+
+
 /* Define custom data structures. ************************************************/
 
 typedef struct {
-	ucontext_t context;
+	void* fst;
+	void* snd;
+} ptrpair_t;
+
+typedef struct {
+	ucontext_t ucontext;
 	struct timeval running_time;
-} uthread_rec_t;
+} uthread_t;
 
 
 typedef struct {
 	pthread_t pthread;
 	struct timeval initial_utime;
+	struct timeval initial_stime;
 	bool active;
-} kthread_rec_t;
+} kthread_t;
 
 
 
 /* Declare helper functions. *****************************************************/
 
-int _uthread_rec_priority(const void* key1, const void* key2);
-//void _uthread_rec_init(context, running_time);
+int uthread_priority(const void* key1, const void* key2);
+void kthread_init(kthread_t* kt);
+void uthread_init(uthread_t* ut, void (*run_func)());
+void* kthread_runner(void* ptr);
+void kthread_create(kthread_t* kt, uthread_t* ut);
+kthread_t* find_inactive_kthread();
+
 
 
 
@@ -39,37 +55,40 @@ int _uthread_rec_priority(const void* key1, const void* key2);
 Heap _waiting_uthreads = NULL;
 int _num_klt;
 int _max_num_klt;
-kthread_rec_t* _kthreads;
+kthread_t* _kthreads;
 pthread_mutex_t _mutex = PTHREAD_MUTEX_INITIALIZER;
-
+pthread_attr_t* _default_pthread_attr = NULL;
+ucontext_t _creator_context;
 
 
 /* Define primary public functions. **********************************************/
 
 void system_init(int max_num_klt) {
-	uthread_init(max_num_klt);
+	uthread_system_init(max_num_klt);
 }
 
 
-void uthread_init(int max_num_klt)
+void uthread_system_init(int max_num_klt)
 {
+	assert(max_num_klt >= 1);
 	assert(_waiting_uthreads == NULL);  // Function must only be called once.
 
 	// The highest priority uthread record (i.e. the on with the lowest running time)
 	// will be at top of the `heap`. Thus, the heap is bottom-heavy w.r.t. running time.
-	_waiting_uthreads = HEAPinit(_uthread_rec_priority, NULL);
+	_waiting_uthreads = HEAPinit(uthread_priority, NULL);
 
-	// Allocate memory for each `kthread_rec_t` and mark each of them as not active.
-	_kthreads = malloc(_max_num_klt * sizeof(kthread_rec_t));
-	kthread_rec_t not_active_kthread = { .active = false };
+	// Allocate memory for each `kthread_t` and initialize each.
+	_kthreads = malloc(_max_num_klt * sizeof(kthread_t));
 	for (int i = 0; i < _max_num_klt; i++) {
-		_kthreads[i] = not_active_kthread;
+		kthread_init(_kthreads + i);
 	}
 
 	// Initialize other globals.
 	_num_klt = 0;
 	_max_num_klt = max_num_klt;
+	// TODO: initialize `_default_pthread_attr()`.
 }
+
 
 
 int uthread_create(void (*run_func)())
@@ -79,34 +98,29 @@ int uthread_create(void (*run_func)())
 	if (_num_klt < _max_num_klt)
 	{
 		// Make a pthread to run this function immediately.
-		assert(HEAPsize(_waiting_uthreads) == 0);
 
-		// Find the first kthread space which is not active:
-		kthread_rec_t* kthread = NULL;
-		for (int idx = 0; idx < _max_num_klt; idx++) {
-			if (_kthreads[idx].active == false) {
-				kthread = _kthreads + idx;
-				break;
-			}
-		}
-		assert(kthread != NULL);
+		assert(HEAPsize(_waiting_uthreads) == 0);  // There must not be waiting
+												   // uthreads if `_num_klt` is
+												   // less than `_max_num_klt`.
 
-		assert(false);  // TODO: not implemented error
+		kthread_t* kthread = find_inactive_kthread();
+		assert(kthread != NULL);  // There must be an inactive `kthread` if
+								  // `_num_klt` is less than `_max_num_klt`.
 
-		// TODO: create uthread
-		// _run_on(uthread, kthread);
+		uthread_t uthread;
+		uthread_init(&uthread, run_func);
+		kthread_create(kthread, &uthread);
+
 	}
 	else
 	{
 		// Add the new uthread record to the heap.
-		uthread_rec_t* rec = malloc(sizeof(uthread_rec_t));
-		//*rec = _uthread_rec_init();
-		HEAPinsert(_waiting_uthreads, (const void *) rec);
+		uthread_t* utp = malloc(sizeof(uthread_t));
+		HEAPinsert(_waiting_uthreads, (const void *) utp);
 	}
 
 	pthread_mutex_unlock(&_mutex);
 }
-
 
 
 
@@ -136,44 +150,107 @@ void uthread_exit()
 
 /* Define primary helper functions. **********************************************/
 
+void uthread_init(uthread_t* uthread, void (*run_func)())
+{
+	// Initialize the `ucontext`.
+	ucontext_t* ucp = &(uthread->ucontext);
+	getcontext(ucp);
+	ucp->uc_stack.ss_sp = malloc(UCONTEXT_STACK_SIZE);
+	ucp->uc_stack.ss_size = UCONTEXT_STACK_SIZE;
+	makecontext(ucp, run_func, 0);
+
+	// Initialize the running time.
+	struct timeval tv = { .tv_sec = 0, .tv_usec = 0 };
+	uthread->running_time = tv;
+}
+
+
+
 /**
- * Interprets the `arg` to be a `uthread_rec_t*` and executes its `run_func()`.
+ * This function is expected to be a `start_routine` for `pthread_create()`
+ *
+ * This interprets the given void pointer as a pointer to a `ptrpair_t`. The `fst`
+ * pointer is interpreted as a `kthread_t*` and the second pointer is interpreted
+ * as a `uthread_t*`. This will free the object which it is given.
  */
-void* _run_uthread(void* uthread_rec) {
-	uthread_rec_t* rec = uthread_rec;
-	//uthread_rec->run_func();
-	uthread_exit();
+void* kthread_runner(void* ptr)
+{
+	ptrpair_t* pair = ptr;
+	kthread_t* kt = pair->fst;
+	uthread_t* ut = pair->snd;
+	free(pair);
+
+	struct rusage ru;
+	const int RUSAGE_THREAD = 1;	// TODO: Fix this hack!
+	getrusage(RUSAGE_THREAD, &ru);  // Only available on linux.
+	kt->initial_utime = ru.ru_utime;
+	kt->initial_stime = ru.ru_stime;
+
+	setcontext(&(ut->ucontext));
 }
 
 
 /**
  * Run the given user thread on the given kernel thread. The kernel thread must
- * not be active, and the user thread must be new.
+ * not already be active.
  */
-bool _run_new_uthread(uthread_rec_t* ut, kthread_rec_t* kt)
+void kthread_create(kthread_t* kt, uthread_t* ut)
 {
+	// TODO: everything!
 	assert(kt->active == false);
-	// If the given kthread is not active, then make a new kthread there.
-	int err = pthread_create(&(kt->pthread), NULL, _run_uthread, ut);
+
+	ptrpair_t* pair = malloc(sizeof(ptrpair_t));
+	int err = pthread_create(&(kt->pthread), _default_pthread_attr,
+							 kthread_runner, (void*) pair);
 	assert (err == 0);  // Cannot handle `pthread` creation errors.
-	
-	struct rusage ru;
-	const int RUSAGE_THREAD = 1;
-	getrusage(RUSAGE_THREAD, &ru);  // Only available on linux.
-	kt->initial_utime = ru.ru_utime;
 }
-
-
-bool _handoff_kthread_to(kthread_rec_t* kt, uthread_rec_t ut)
-{
-	assert(false);  // TODO: not implemented error
-}
-
 
 
 
 
 /* Define minor helper functions. ************************************************/
+
+void kthread_init(kthread_t* kt) {
+	kt->active = false;
+}
+
+
+/**
+ * Returns a pointer to a `kthread_t` slot which is which is not active. If
+ * no such `kthread_t` slot exists, then `NULL` is returned.
+ */
+kthread_t* find_inactive_kthread()
+{
+	kthread_t* kthread = NULL;
+	for (int idx = 0; idx < _max_num_klt; idx++) {
+		if (_kthreads[idx].active == false) {
+			kthread = _kthreads + idx;
+			break;
+		}
+	}
+	return kthread;
+}
+
+
+/**
+ * Interprets `key1` and `key2` as pointers to `uthread_t` objects, and
+ * compares them. The comparison is based on the running time of the two records.
+ * In particular, given the two records, the record with the smaller running time will
+ * have the greater priority.
+ */
+int uthread_priority(const void* key1, const void* key2)
+{
+	const uthread_t* rec1 = key1;
+	const uthread_t* rec2 = key2;
+
+	int cmp = timeval_cmp(rec1->running_time, rec2->running_time);
+	return -cmp;
+}
+
+
+
+
+/* Define `timeval` helper functions. ********************************************/
 
 int long_cmp(long a, long b)
 {
@@ -209,27 +286,12 @@ bool timeval_is_leq(struct timeval fst, struct timeval snd) {
 	return cmp <= 0;
 }
 
+
 struct timeval timeval_diff(struct timeval fst, struct timeval snd)
 {
 	assert(timeval_is_leq(fst, snd));
 	
 	struct timeval rv = { .tv_sec  = snd.tv_sec  - fst.tv_sec,
-	                      .tv_usec = snd.tv_usec - fst.tv_usec };
+						  .tv_usec = snd.tv_usec - fst.tv_usec };
 	return rv;
-}
-
-
-/**
- * Interprets `key1` and `key2` as pointers to `uthread_rec_t` objects, and
- * compares them. The comparison is based on the running time of the two records.
- * In particular, given the two records, the record with the smaller running time will
- * have the greater priority.
- */
-int _uthread_rec_priority(const void* key1, const void* key2)
-{
-	const uthread_rec_t* rec1 = key1;
-	const uthread_rec_t* rec2 = key2;
-
-	int cmp = timeval_cmp(rec1->running_time, rec2->running_time);
-	return -cmp;
 }
