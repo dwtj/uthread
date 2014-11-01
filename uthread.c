@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <stdbool.h>
 #include <ucontext.h>
@@ -5,6 +6,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <pthread.h>
+#include <sched.h>
 
 #include "lib/heap.h"
 #include "lib/tvhelp.h"
@@ -46,7 +48,7 @@ typedef struct {
 int uthread_priority(const void* key1, const void* key2);
 void kthread_init(kthread_t* kt);
 void uthread_init(uthread_t* ut, void (*run_func)());
-void* kthread_runner(void* ptr);
+int kthread_runner(void* ptr);
 void kthread_create(kthread_t* kt, uthread_t* ut);
 kthread_t* find_inactive_kthread();
 uthread_t* find_inactive_uthread();
@@ -194,7 +196,7 @@ void uthread_init(uthread_t* uthread, void (*run_func)())
  * pointer is interpreted as a `kthread_t*` and the second pointer is interpreted
  * as a `uthread_t*`. This will free the object which it is given.
  */
-void* kthread_runner(void* ptr)
+int kthread_runner(void* ptr)
 {
 	ptrpair_t* pair = ptr;
 	kthread_t* kt = pair->fst;
@@ -208,6 +210,8 @@ void* kthread_runner(void* ptr)
 	kt->initial_stime = ru.ru_stime;
 
 	setcontext(&(ut->ucontext));
+
+	return 0;
 }
 
 
@@ -225,9 +229,15 @@ void kthread_create(kthread_t* kt, uthread_t* ut)
 	pair->fst = kt;
 	pair->snd = ut;
 
+	/*
 	int err = pthread_create(&(kt->pthread), _default_pthread_attr,
 							 kthread_runner, (void*) pair);
 	assert (err == 0);  // Cannot handle `pthread` creation errors.
+	*/
+	// Try using clone instead:
+	void *child_stack;
+	child_stack=(void *)malloc(16384); child_stack+=16383;
+	clone(kthread_runner, child_stack, CLONE_VM|CLONE_FILES, pair);
 }
 
 
