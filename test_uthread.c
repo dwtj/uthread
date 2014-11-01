@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <pthread.h>
 
 #include "uthread.h"
@@ -51,6 +53,6 @@ int main(int argc, char* argv[])
     int i;
     system_init(1);
     setbuf(stdout,NULL);
-    uthread_create(do_something);
-    //uthread_exit();
+    int pid = uthread_create(do_something);
+	waitpid(pid, 0, 0);
 }

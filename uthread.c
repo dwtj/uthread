@@ -7,6 +7,8 @@
 #include <sys/resource.h>
 #include <pthread.h>
 #include <sched.h>
+#include <unistd.h>
+#include <sys/syscall.h>
 
 #include "lib/heap.h"
 #include "lib/tvhelp.h"
@@ -16,9 +18,9 @@
 
 /* Define private directives. ****************************************************/
 
-#define UCONTEXT_STACK_SIZE 16384
-#define MAX_NUM_UTHREADS 1000
-
+#define UCONTEXT_STACK_SIZE  16384
+#define MAX_NUM_UTHREADS     1000
+#define gettid()             (syscall(SYS_gettid))
 
 /* Define custom data structures. ************************************************/
 
@@ -49,7 +51,7 @@ int uthread_priority(const void* key1, const void* key2);
 void kthread_init(kthread_t* kt);
 void uthread_init(uthread_t* ut, void (*run_func)());
 int kthread_runner(void* ptr);
-void kthread_create(kthread_t* kt, uthread_t* ut);
+int kthread_create(kthread_t* kt, uthread_t* ut);
 kthread_t* find_inactive_kthread();
 uthread_t* find_inactive_uthread();
 
@@ -59,6 +61,11 @@ uthread_t* find_inactive_uthread();
 /* Define file-global variables. *************************************************/
 
 Heap _waiting_uthreads = NULL;
+/*
+// DEBUG
+int _system_init_with;
+pthread_mutex_t _system_mutex = PTHREAD_MUTEX_INITIALIZER;
+*/
 int _num_kthreads;
 int _max_num_kthreads;
 int _num_uthreads;
@@ -80,6 +87,12 @@ void uthread_system_init(int max_num_kthreads)
 {
 	assert(1 <= max_num_kthreads && max_num_kthreads <= MAX_NUM_UTHREADS);
 	assert(_waiting_uthreads == NULL);  // Function must only be called once.
+
+	/*
+	// DEBUG
+	_system_init_with = gettid();
+	pthread_mutex_lock(&_system_mutex);
+	*/
 
 	// The highest priority uthread record (i.e. the on with the lowest running time)
 	// will be at top of the `heap`. Thus, the heap is bottom-heavy w.r.t. running time.
@@ -108,7 +121,11 @@ void uthread_system_init(int max_num_kthreads)
 
 int uthread_create(void (*run_func)())
 {
+	int rv;
+
+	puts("uthread_create()");
 	pthread_mutex_lock(&_mutex);
+	puts("uthread_create(): past lock");
 
 	_num_uthreads += 1;
 
@@ -120,11 +137,13 @@ int uthread_create(void (*run_func)())
 
 	if (_num_kthreads == _max_num_kthreads)
 	{
+		puts("Adding `uthread` to heap.");
 		// Add the new uthread record to the heap.
 		HEAPinsert(_waiting_uthreads, (const void *) uthread);
 	}
 	else
 	{
+		puts("Starting `uthread` on new `kthread`.");
 		// Make a pthread to run this function immediately.
 
 		assert(HEAPsize(_waiting_uthreads) == 0);  // There must not be waiting
@@ -135,11 +154,12 @@ int uthread_create(void (*run_func)())
 		assert(kthread != NULL);  // There must be an inactive `kthread` if
 								  // `_num_kthreads` is less than `_max_num_kthreads`.
 
-		kthread_create(kthread, uthread);
+		rv = kthread_create(kthread, uthread);
 		_num_kthreads += 1;
 	}
 
 	pthread_mutex_unlock(&_mutex);
+	return rv;
 }
 
 
@@ -157,13 +177,29 @@ void uthread_yield()
 
 void uthread_exit()
 {
-	pthread_mutex_lock(&_mutex);
-	// Check if a uthread can use this kthread. If so, pop the uthread from the
-	// heap and use this kthread. Else, destroy the kthread.
 
-	assert(false);  // TODO: not implemented error
+	/*
+	// DEBUG
+	if (gettid() == _system_init_with)
+	{
+		printf("uthread_exit() was called by a non-kthread.\n");
+		// Make the thread which initialized the system have to wait until all threads
+		// are finished running.
+		pthread_mutex_lock(&_system_mutex);
+	}
+	else
+	{
+	*/
+		pthread_mutex_lock(&_mutex);
+		printf("uthread_exit() was called by a kthread.\n");
+		// Check if a uthread can use this kthread. If so, pop the uthread from the
+		// heap and use this kthread. Else, destroy the kthread.
+		assert(false);  // TODO: not implemented error
+		pthread_mutex_unlock(&_mutex);
+	/*
+	}
+	*/
 
-	pthread_mutex_unlock(&_mutex);
 }
 
 
@@ -219,7 +255,7 @@ int kthread_runner(void* ptr)
  * Run the given user thread on the given kernel thread. The kernel thread must
  * not already be active.
  */
-void kthread_create(kthread_t* kt, uthread_t* ut)
+int kthread_create(kthread_t* kt, uthread_t* ut)
 {
 	// TODO: everything!
 	assert(kt->active == false);
@@ -237,7 +273,7 @@ void kthread_create(kthread_t* kt, uthread_t* ut)
 	// Try using clone instead:
 	void *child_stack;
 	child_stack=(void *)malloc(16384); child_stack+=16383;
-	clone(kthread_runner, child_stack, CLONE_VM|CLONE_FILES, pair);
+	return clone(kthread_runner, child_stack, CLONE_VM|CLONE_FILES, pair);
 }
 
 
