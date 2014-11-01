@@ -1,19 +1,19 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
-#include <semaphore.h>
+#include <pthread.h>
 
 #include "uthread.h"
 
 int n_threads=1;
 int myid=0;
-sem_t mutex;
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void do_something()
 {
     int id,i,j;
 
-    sem_wait(&mutex);
+    pthread_mutex_lock(&mutex);
 
     id=myid;
     myid++;
@@ -21,9 +21,11 @@ void do_something()
 
     if(n_threads<6){
         n_threads++;
-        sem_post(&mutex);
+        pthread_mutex_unlock(&mutex);
         uthread_create(do_something);
-    }else sem_post(&mutex);
+    } else {
+	pthread_mutex_unlock(&mutex);
+    }
 
     if(id%2==0)
         for(j=0;j<100;j++)
@@ -44,12 +46,11 @@ void do_something()
     uthread_exit();
 }
 
-main()
+int main(int argc, char* argv[])
 {
     int i;
     system_init(1);
     setbuf(stdout,NULL);
-    sem_init(&mutex,0,1);
     uthread_create(do_something);
     uthread_exit();
 }

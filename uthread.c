@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include <stdbool.h>
-#include <semaphore.h>
 #include <ucontext.h>
 #include <assert.h>
 #include <sys/time.h>
@@ -31,7 +30,7 @@ typedef struct {
 /* Declare helper functions. *****************************************************/
 
 int _uthread_rec_priority(const void* key1, const void* key2);
-void _uthread_rec_init(context, running_time);
+//void _uthread_rec_init(context, running_time);
 
 
 
@@ -41,7 +40,7 @@ Heap _waiting_uthreads = NULL;
 int _num_klt;
 int _max_num_klt;
 kthread_rec_t* _kthreads;
-sem_t _mutex;
+pthread_mutex_t _mutex = PTHREAD_MUTEX_INITIALIZER;
 
 
 
@@ -70,13 +69,12 @@ void uthread_init(int max_num_klt)
 	// Initialize other globals.
 	_num_klt = 0;
 	_max_num_klt = max_num_klt;
-	sem_init(&_mutex, 0, 1);
 }
 
 
 int uthread_create(void (*run_func)())
 {
-	sem_wait(&_mutex);
+	pthread_mutex_lock(&_mutex);
 
 	if (_num_klt < _max_num_klt)
 	{
@@ -102,11 +100,11 @@ int uthread_create(void (*run_func)())
 	{
 		// Add the new uthread record to the heap.
 		uthread_rec_t* rec = malloc(sizeof(uthread_rec_t));
-		*rec = _uthread_rec_init();
+		//*rec = _uthread_rec_init();
 		HEAPinsert(_waiting_uthreads, (const void *) rec);
 	}
 
-	sem_post(&_mutex);
+	pthread_mutex_unlock(&_mutex);
 }
 
 
@@ -115,23 +113,23 @@ int uthread_create(void (*run_func)())
 
 void uthread_yield()
 {
-	sem_wait(&_mutex);
+	pthread_mutex_lock(&_mutex);
 
 	assert(false);  // TODO: not implemented error
 
-	sem_post(&_mutex);
+	pthread_mutex_unlock(&_mutex);
 }
 
 
 void uthread_exit()
 {
-	sem_wait(&_mutex);
+	pthread_mutex_lock(&_mutex);
 	// Check if a uthread can use this kthread. If so, pop the uthread from the
 	// heap and use this kthread. Else, destroy the kthread.
 
 	assert(false);  // TODO: not implemented error
 
-	sem_post(&_mutex);
+	pthread_mutex_unlock(&_mutex);
 }
 
 
@@ -143,7 +141,7 @@ void uthread_exit()
  */
 void* _run_uthread(void* uthread_rec) {
 	uthread_rec_t* rec = uthread_rec;
-	rec->run_func();
+	//uthread_rec->run_func();
 	uthread_exit();
 }
 
@@ -160,7 +158,8 @@ bool _run_new_uthread(uthread_rec_t* ut, kthread_rec_t* kt)
 	assert (err == 0);  // Cannot handle `pthread` creation errors.
 	
 	struct rusage ru;
-	assert(getrusage(RUSAGE_THREAD, &ru) == 0);  // Only available on linux.
+	const int RUSAGE_THREAD = 1;
+	getrusage(RUSAGE_THREAD, &ru);  // Only available on linux.
 	kt->initial_utime = ru.ru_utime;
 }
 

@@ -1,11 +1,13 @@
+CC=gcc
+CFLAGS=-std=gnu11 -lm -lpthread
 test_uthread : test_uthread.c heap.o uthread.o
-	cc -o test_uthread test_uthread.c heap.o uthread.o
+	$(CC) $(CFLAGS) -o test_uthread test_uthread.c heap.o uthread.o
 
 heap.o : lib/heap.c
-	cc -c -o $@ $<
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 uthread.o : uthread.c
-	cc -c -o $@ $<
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 .PHONY : clean
 
