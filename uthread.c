@@ -15,7 +15,6 @@
 /* Define custom data structures. ************************************************/
 
 typedef struct {
-	void (*run_func)();
 	ucontext_t context;
 	struct timeval running_time;
 } uthread_rec_t;
@@ -23,7 +22,6 @@ typedef struct {
 
 typedef struct {
 	pthread_t pthread;
-	pthread_attr_t attr;
 	struct timeval initial_utime;
 	bool active;
 } kthread_rec_t;
@@ -32,10 +30,8 @@ typedef struct {
 
 /* Declare helper functions. *****************************************************/
 
-uthread_rec_t _new_uthread_rec(void (*run_func)());
-uthread_rec_t _sleeping_uthread_rec();
 int _uthread_rec_priority(const void* key1, const void* key2);
-
+void _uthread_rec_init(context, running_time);
 
 
 
@@ -106,7 +102,7 @@ int uthread_create(void (*run_func)())
 	{
 		// Add the new uthread record to the heap.
 		uthread_rec_t* rec = malloc(sizeof(uthread_rec_t));
-		*rec = _new_uthread_rec(run_func);
+		*rec = _uthread_rec_init();
 		HEAPinsert(_waiting_uthreads, (const void *) rec);
 	}
 
@@ -153,14 +149,14 @@ void* _run_uthread(void* uthread_rec) {
 
 
 /**
- * Run the given user thread on the given kernel thread.
+ * Run the given user thread on the given kernel thread. The kernel thread must
+ * not be active, and the user thread must be new.
  */
-bool _run_uthread_on(uthread_rec_t* ut, kthread_rec_t* kt)
+bool _run_new_uthread(uthread_rec_t* ut, kthread_rec_t* kt)
 {
 	assert(kt->active == false);
 	// If the given kthread is not active, then make a new kthread there.
-	pthread_attr_init(&(kt->attr));
-	int err = pthread_create(&(kt->pthread), &(kt->attr), _run_uthread, ut);
+	int err = pthread_create(&(kt->pthread), NULL, _run_uthread, ut);
 	assert (err == 0);  // Cannot handle `pthread` creation errors.
 	
 	struct rusage ru;
@@ -237,28 +233,4 @@ int _uthread_rec_priority(const void* key1, const void* key2)
 
 	int cmp = timeval_cmp(rec1->running_time, rec2->running_time);
 	return -cmp;
-}
-
-
-bool _is_sleeping_uthread_rec(uthread_rec_t rec) {
-	return rec.run_func == NULL;
-}
-
-
-bool _is_new_uthread_rec(uthread_rec_t rec) {
-	return !_is_sleeping_uthread_rec(rec);
-}
-
-
-uthread_rec_t _new_uthread_rec(void (*run_func)())
-{
-	uthread_rec_t rv = { .run_func = run_func, .running_time = 0 };
-	return rv;
-}
-
-
-uthread_rec_t _sleeping_uthread_rec()
-{
-	uthread_rec_t rv = { .run_func = NULL };
-	return rv;
 }
