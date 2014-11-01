@@ -52,5 +52,5 @@ int main(int argc, char* argv[])
     system_init(1);
     setbuf(stdout,NULL);
     uthread_create(do_something);
-    uthread_exit();
+    //uthread_exit();
 }

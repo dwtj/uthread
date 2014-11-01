@@ -15,6 +15,7 @@
 /* Define private directives. ****************************************************/
 
 #define UCONTEXT_STACK_SIZE 16384
+#define MAX_NUM_UTHREADS 1000
 
 
 /* Define custom data structures. ************************************************/
@@ -27,6 +28,7 @@ typedef struct {
 typedef struct {
 	ucontext_t ucontext;
 	struct timeval running_time;
+	bool active;
 } uthread_t;
 
 
@@ -47,6 +49,7 @@ void uthread_init(uthread_t* ut, void (*run_func)());
 void* kthread_runner(void* ptr);
 void kthread_create(kthread_t* kt, uthread_t* ut);
 kthread_t* find_inactive_kthread();
+uthread_t* find_inactive_uthread();
 
 
 
@@ -54,8 +57,10 @@ kthread_t* find_inactive_kthread();
 /* Define file-global variables. *************************************************/
 
 Heap _waiting_uthreads = NULL;
-int _num_klt;
-int _max_num_klt;
+int _num_kthreads;
+int _max_num_kthreads;
+int _num_uthreads;
+uthread_t* _uthreads;
 kthread_t* _kthreads;
 pthread_mutex_t _mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_attr_t* _default_pthread_attr = NULL;
@@ -64,29 +69,36 @@ ucontext_t _creator_context;
 
 /* Define primary public functions. **********************************************/
 
-void system_init(int max_num_klt) {
-	uthread_system_init(max_num_klt);
+void system_init(int max_num_kthreads) {
+	uthread_system_init(max_num_kthreads);
 }
 
 
-void uthread_system_init(int max_num_klt)
+void uthread_system_init(int max_num_kthreads)
 {
-	assert(max_num_klt >= 1);
+	assert(1 <= max_num_kthreads && max_num_kthreads <= MAX_NUM_UTHREADS);
 	assert(_waiting_uthreads == NULL);  // Function must only be called once.
 
 	// The highest priority uthread record (i.e. the on with the lowest running time)
 	// will be at top of the `heap`. Thus, the heap is bottom-heavy w.r.t. running time.
 	_waiting_uthreads = HEAPinit(uthread_priority, NULL);
 
-	// Allocate memory for each `kthread_t` and initialize each.
-	_kthreads = malloc(_max_num_klt * sizeof(kthread_t));
-	for (int i = 0; i < _max_num_klt; i++) {
-		kthread_init(_kthreads + i);
+	// Allocate memory for each `kthread_t` and mark each as inactive.
+	_kthreads = malloc(_max_num_kthreads * sizeof(kthread_t));
+	for (int i = 0; i < _max_num_kthreads; i++) {
+		_kthreads[i].active = false;
+	}
+
+	// Allocate memory for each `uthread_t` and mark each as inactive.
+	_uthreads = malloc(MAX_NUM_UTHREADS * sizeof(uthread_t));
+	for (int i = 0; i < MAX_NUM_UTHREADS; i++) {
+		_uthreads[i].active = false;
 	}
 
 	// Initialize other globals.
-	_num_klt = 0;
-	_max_num_klt = max_num_klt;
+	_num_uthreads = 0;
+	_num_kthreads = 0;
+	_max_num_kthreads = max_num_kthreads;
 	// TODO: initialize `_default_pthread_attr()`.
 }
 
@@ -96,28 +108,33 @@ int uthread_create(void (*run_func)())
 {
 	pthread_mutex_lock(&_mutex);
 
-	if (_num_klt < _max_num_klt)
+	_num_uthreads += 1;
+
+	assert(_num_uthreads < MAX_NUM_UTHREADS);
+	assert(_num_kthreads <= _max_num_kthreads);
+
+	uthread_t* uthread = find_inactive_uthread();
+	uthread_init(uthread, run_func);
+
+	if (_num_kthreads == _max_num_kthreads)
+	{
+		// Add the new uthread record to the heap.
+		HEAPinsert(_waiting_uthreads, (const void *) uthread);
+	}
+	else
 	{
 		// Make a pthread to run this function immediately.
 
 		assert(HEAPsize(_waiting_uthreads) == 0);  // There must not be waiting
-												   // uthreads if `_num_klt` is
-												   // less than `_max_num_klt`.
+												   // uthreads if `_num_kthreads` is
+												   // less than `_max_num_kthreads`.
 
 		kthread_t* kthread = find_inactive_kthread();
 		assert(kthread != NULL);  // There must be an inactive `kthread` if
-								  // `_num_klt` is less than `_max_num_klt`.
+								  // `_num_kthreads` is less than `_max_num_kthreads`.
 
-		uthread_t uthread;
-		uthread_init(&uthread, run_func);
-		kthread_create(kthread, &uthread);
-
-	}
-	else
-	{
-		// Add the new uthread record to the heap.
-		uthread_t* utp = malloc(sizeof(uthread_t));
-		HEAPinsert(_waiting_uthreads, (const void *) utp);
+		kthread_create(kthread, uthread);
+		_num_kthreads += 1;
 	}
 
 	pthread_mutex_unlock(&_mutex);
@@ -163,6 +180,9 @@ void uthread_init(uthread_t* uthread, void (*run_func)())
 	// Initialize the running time.
 	struct timeval tv = { .tv_sec = 0, .tv_usec = 0 };
 	uthread->running_time = tv;
+
+	// Set as active.
+	uthread->active = true;
 }
 
 
@@ -200,7 +220,11 @@ void kthread_create(kthread_t* kt, uthread_t* ut)
 	// TODO: everything!
 	assert(kt->active == false);
 
+	// It is the responsibility of the newly created thread to free `pair`.
 	ptrpair_t* pair = malloc(sizeof(ptrpair_t));
+	pair->fst = kt;
+	pair->snd = ut;
+
 	int err = pthread_create(&(kt->pthread), _default_pthread_attr,
 							 kthread_runner, (void*) pair);
 	assert (err == 0);  // Cannot handle `pthread` creation errors.
@@ -223,13 +247,30 @@ void kthread_init(kthread_t* kt) {
 kthread_t* find_inactive_kthread()
 {
 	kthread_t* kthread = NULL;
-	for (int idx = 0; idx < _max_num_klt; idx++) {
+	for (int idx = 0; idx < _max_num_kthreads; idx++) {
 		if (_kthreads[idx].active == false) {
 			kthread = _kthreads + idx;
 			break;
 		}
 	}
 	return kthread;
+}
+
+
+/**
+ * Returns a pointer to a `uthread_t` slot which is which is not active. If
+ * no such `uthread_t` slot exists, then `NULL` is returned.
+ */
+uthread_t* find_inactive_uthread()
+{
+	uthread_t* uthread = NULL;
+	for (int idx = 0; idx < _max_num_kthreads; idx++) {
+		if (_uthreads[idx].active == false) {
+			uthread = _uthreads + idx;
+			break;
+		}
+	}
+	return uthread;
 }
 
 
