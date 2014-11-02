@@ -19,6 +19,7 @@
 /* Define private directives. ****************************************************/
 
 #define UCONTEXT_STACK_SIZE  16384
+#define CLONE_STACK_SIZE     16384
 #define MAX_NUM_UTHREADS     1000
 #define gettid()             (syscall(SYS_gettid))
 
@@ -61,11 +62,6 @@ uthread_t* find_inactive_uthread();
 /* Define file-global variables. *************************************************/
 
 Heap _waiting_uthreads = NULL;
-/*
-// DEBUG
-int _system_init_with;
-pthread_mutex_t _system_mutex = PTHREAD_MUTEX_INITIALIZER;
-*/
 int _num_kthreads;
 int _max_num_kthreads;
 int _num_uthreads;
@@ -73,7 +69,8 @@ uthread_t* _uthreads;
 kthread_t* _kthreads;
 pthread_mutex_t _mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_attr_t* _default_pthread_attr = NULL;
-ucontext_t _creator_context;
+ucontext_t _system_initializer_context;
+
 
 
 /* Define primary public functions. **********************************************/
@@ -88,11 +85,7 @@ void uthread_system_init(int max_num_kthreads)
 	assert(1 <= max_num_kthreads && max_num_kthreads <= MAX_NUM_UTHREADS);
 	assert(_waiting_uthreads == NULL);  // Function must only be called once.
 
-	/*
-	// DEBUG
-	_system_init_with = gettid();
-	pthread_mutex_lock(&_system_mutex);
-	*/
+	getcontext(&_system_initializer_context);
 
 	// The highest priority uthread record (i.e. the on with the lowest running time)
 	// will be at top of the `heap`. Thus, the heap is bottom-heavy w.r.t. running time.
@@ -133,6 +126,7 @@ int uthread_create(void (*run_func)())
 	assert(_num_kthreads <= _max_num_kthreads);
 
 	uthread_t* uthread = find_inactive_uthread();
+	assert (uthread != NULL);
 	uthread_init(uthread, run_func);
 
 	if (_num_kthreads == _max_num_kthreads)
@@ -177,29 +171,12 @@ void uthread_yield()
 
 void uthread_exit()
 {
-
-	/*
-	// DEBUG
-	if (gettid() == _system_init_with)
-	{
-		printf("uthread_exit() was called by a non-kthread.\n");
-		// Make the thread which initialized the system have to wait until all threads
-		// are finished running.
-		pthread_mutex_lock(&_system_mutex);
-	}
-	else
-	{
-	*/
-		pthread_mutex_lock(&_mutex);
-		printf("uthread_exit() was called by a kthread.\n");
-		// Check if a uthread can use this kthread. If so, pop the uthread from the
-		// heap and use this kthread. Else, destroy the kthread.
-		assert(false);  // TODO: not implemented error
-		pthread_mutex_unlock(&_mutex);
-	/*
-	}
-	*/
-
+	pthread_mutex_lock(&_mutex);
+	printf("uthread_exit()\n");
+	// Check if a uthread can use this kthread. If so, pop the uthread from the
+	// heap and use this kthread. Else, destroy the kthread.
+	assert(false);  // TODO: not implemented error
+	pthread_mutex_unlock(&_mutex);
 }
 
 
@@ -208,12 +185,15 @@ void uthread_exit()
 
 void uthread_init(uthread_t* uthread, void (*run_func)())
 {
+	assert(uthread != NULL);
+	assert(run_func != NULL);
+
 	// Initialize the `ucontext`.
-	ucontext_t* ucp = &(uthread->ucontext);
-	getcontext(ucp);
-	ucp->uc_stack.ss_sp = malloc(UCONTEXT_STACK_SIZE);
-	ucp->uc_stack.ss_size = UCONTEXT_STACK_SIZE;
-	makecontext(ucp, run_func, 0);
+	ucontext_t* uc = &(uthread->ucontext);
+	*uc = _system_initializer_context;
+	uc->uc_stack.ss_sp = malloc(UCONTEXT_STACK_SIZE);
+	uc->uc_stack.ss_size = UCONTEXT_STACK_SIZE;
+	makecontext(uc, run_func, 0);
 
 	// Initialize the running time.
 	struct timeval tv = { .tv_sec = 0, .tv_usec = 0 };
@@ -265,14 +245,10 @@ int kthread_create(kthread_t* kt, uthread_t* ut)
 	pair->fst = kt;
 	pair->snd = ut;
 
-	/*
-	int err = pthread_create(&(kt->pthread), _default_pthread_attr,
-							 kthread_runner, (void*) pair);
-	assert (err == 0);  // Cannot handle `pthread` creation errors.
-	*/
 	// Try using clone instead:
 	void *child_stack;
-	child_stack=(void *)malloc(16384); child_stack+=16383;
+	child_stack = (void *)malloc(CLONE_STACK_SIZE);
+	child_stack += CLONE_STACK_SIZE - 1;
 	return clone(kthread_runner, child_stack, CLONE_VM|CLONE_FILES, pair);
 }
 
@@ -310,7 +286,7 @@ kthread_t* find_inactive_kthread()
 uthread_t* find_inactive_uthread()
 {
 	uthread_t* uthread = NULL;
-	for (int idx = 0; idx < _max_num_kthreads; idx++) {
+	for (int idx = 0; idx < MAX_NUM_UTHREADS; idx++) {
 		if (_uthreads[idx].active == false) {
 			uthread = _uthreads + idx;
 			break;
