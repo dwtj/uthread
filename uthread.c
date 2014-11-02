@@ -228,6 +228,9 @@ int kthread_runner(void* ptr)
 	uthread_t* ut = pair->snd;
 	free(pair);
 
+	kt->tid = gettid();
+	kt->active = true;
+
 	struct rusage ru;
 	const int RUSAGE_THREAD = 1;	// TODO: Fix this hack!
 	getrusage(RUSAGE_THREAD, &ru);  // Only available on linux.
@@ -236,7 +239,7 @@ int kthread_runner(void* ptr)
 
 	setcontext(&(ut->ucontext));
 
-	return 0;
+	assert(false);  // Execution should never reach here.
 }
 
 
