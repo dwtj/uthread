@@ -199,8 +199,6 @@ void uthread_exit()
 		pthread_mutex_unlock(&_mutex);
 		ucontext_t* uc = &(load_from->ucontext);
 		setcontext(uc);
-		uc->uc_stack.ss_sp = malloc(UCONTEXT_STACK_SIZE);
-		uc->uc_stack.ss_size = UCONTEXT_STACK_SIZE;
 	}
 	else
 	{
@@ -266,8 +264,6 @@ int kthread_runner(void* ptr)
 
 	ucontext_t* uc = &(ut->ucontext);
 	setcontext(uc);
-	uc->uc_stack.ss_sp = malloc(UCONTEXT_STACK_SIZE);
-	uc->uc_stack.ss_size = UCONTEXT_STACK_SIZE;
 
 	assert(false);  // Execution should never reach here.
 }
