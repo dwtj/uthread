@@ -55,6 +55,6 @@ int main(int argc, char* argv[])
     system_init(1);
     setbuf(stdout,NULL);
     int pid = uthread_create(do_something);
-	while (true)
-		;  // Do nothing.
+	uthread_exit();
+	puts("Ending test program.\n");
 }

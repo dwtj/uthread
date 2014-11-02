@@ -64,6 +64,7 @@ uthread_t* find_inactive_uthread();
 
 /* Define file-global variables. *************************************************/
 
+bool _shutdown = false;
 Heap _waiting_uthreads = NULL;
 int _num_kthreads;
 int _max_num_kthreads;
@@ -86,6 +87,7 @@ void system_init(int max_num_kthreads) {
 
 void uthread_system_init(int max_num_kthreads)
 {
+	assert(_shutdown == false);
 	assert(1 <= max_num_kthreads && max_num_kthreads <= MAX_NUM_UTHREADS);
 	assert(_waiting_uthreads == NULL);  // Function must only be called once.
 
@@ -122,6 +124,7 @@ int uthread_create(void (*run_func)())
 
 	puts("uthread_create()");
 	pthread_mutex_lock(&_mutex);
+	assert(_shutdown == false);
 
 	// Lock the system from shutting down while there is a uthread running.
 	if (_num_kthreads == 0) {
@@ -171,6 +174,7 @@ void uthread_yield()
 {
 	printf("uthread_yield()\n");
 	pthread_mutex_lock(&_mutex);
+	assert(_shutdown == false);
 
 	if (HEAPsize(_waiting_uthreads) > 0)
 	{
@@ -193,20 +197,26 @@ void uthread_yield()
 void uthread_exit()
 {
 	printf("uthread_exit()\n");
+
 	pthread_mutex_lock(&_mutex);
 	kthread_t* self = kthread_self();
+	int self_tid;
 	pthread_mutex_unlock(&_mutex);
 
 	// If the calling thread is not a `kthread` created by the system, block on a
 	// mutex until there are no running `kthreads`.
 	if (self == NULL) {
 		pthread_mutex_lock(&_shutdown_mutex);
+		_shutdown = true;
 		pthread_mutex_unlock(&_shutdown_mutex);
 		return;
 	}
 
 	pthread_mutex_lock(&_mutex);
+	assert(_shutdown == false);
+
 	self = kthread_self();
+	self_tid = self->tid;
 
 	// Check if a uthread can use this kthread.
 	if (HEAPsize(_waiting_uthreads) > 0)
@@ -233,8 +243,12 @@ void uthread_exit()
 		self->active = false;
 		_num_kthreads--;
 
+		// If this was the last `kthread`, then the system-shutdown mutex is unlocked.
 		// Free lock and kill self.
-		int self_tid = self->tid;
+		if (_num_kthreads == 0) {
+			pthread_mutex_unlock(&_shutdown_mutex);
+		}
+
 		pthread_mutex_unlock(&_mutex);
 		tgkill(self_tid, getpid(), SIGKILL);
 		assert(false);  // Control should never reach here.
