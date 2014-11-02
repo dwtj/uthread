@@ -131,7 +131,7 @@ int uthread_create(void (*run_func)())
 
 	if (_num_kthreads == _max_num_kthreads)
 	{
-		puts("Adding `uthread` to heap.");
+		puts("Adding new `uthread` to heap.");
 		// Add the new uthread record to the heap.
 		HEAPinsert(_waiting_uthreads, (const void *) uthread);
 	}
@@ -168,6 +168,7 @@ void uthread_yield()
 	{
 		// TODO: fix this crazy use of memory!
 		uthread_t* save_to = find_inactive_uthread();
+		save_to->active = true;
 
 		uthread_t* load_from = NULL;
 		HEAPextract(_waiting_uthreads, (void **) &load_from);
