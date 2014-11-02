@@ -119,7 +119,6 @@ int uthread_create(void (*run_func)())
 
 	puts("uthread_create()");
 	pthread_mutex_lock(&_mutex);
-	puts("uthread_create(): past lock");
 
 	_num_uthreads += 1;
 
@@ -162,15 +161,21 @@ int uthread_create(void (*run_func)())
 
 void uthread_yield()
 {
+	printf("uthread_yield()\n");
 	pthread_mutex_lock(&_mutex);
 
-	if (HEAPsize(_waiting_uthreads) > 0) {
-		// TODO: everything
-		assert(false);  // TODO: not implemented error
-		kthread_handoff(NULL, NULL);
+	if (HEAPsize(_waiting_uthreads) > 0)
+	{
+		// TODO: fix this crazy use of memory!
+		uthread_t* load_from = NULL;
+		uthread_t* save_to = find_inactive_uthread();
+		HEAPextract(_waiting_uthreads, (void **) &load_from);
+
+		// TODO: fix this crazy possibility of race conditions!
+		pthread_mutex_unlock(&_mutex);
+		kthread_handoff(load_from, save_to);
 	}
 
-	pthread_mutex_unlock(&_mutex);
 }
 
 
@@ -189,7 +194,8 @@ void uthread_exit()
 /* Define primary helper functions. **********************************************/
 
 void kthread_handoff(uthread_t* load_from, uthread_t* save_to) {
-	assert(false);  // TODO: not implemented error
+	assert(load_from != NULL && save_to != NULL);
+	swapcontext(&(save_to->ucontext), &(load_from->ucontext));
 }
 
 void uthread_init(uthread_t* uthread, void (*run_func)())
@@ -223,6 +229,8 @@ void uthread_init(uthread_t* uthread, void (*run_func)())
  */
 int kthread_runner(void* ptr)
 {
+	printf("kthread_runner()\n");
+
 	ptrpair_t* pair = ptr;
 	kthread_t* kt = pair->fst;
 	uthread_t* ut = pair->snd;
@@ -261,7 +269,9 @@ int kthread_create(kthread_t* kt, uthread_t* ut)
 	void *child_stack;
 	child_stack = (void *)malloc(CLONE_STACK_SIZE);
 	child_stack += CLONE_STACK_SIZE - 1;
-	return clone(kthread_runner, child_stack, CLONE_VM|CLONE_FILES, pair);
+	int pid = clone(kthread_runner, child_stack, CLONE_VM|CLONE_FILES, pair);
+	assert(pid > 0);
+	return pid;
 }
 
 

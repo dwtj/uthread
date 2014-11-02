@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <math.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -54,5 +55,6 @@ int main(int argc, char* argv[])
     system_init(1);
     setbuf(stdout,NULL);
     int pid = uthread_create(do_something);
-	waitpid(pid, 0, 0);
+	while (true)
+		;  // Do nothing.
 }
