@@ -167,9 +167,11 @@ void uthread_yield()
 	if (HEAPsize(_waiting_uthreads) > 0)
 	{
 		// TODO: fix this crazy use of memory!
-		uthread_t* load_from = NULL;
 		uthread_t* save_to = find_inactive_uthread();
+
+		uthread_t* load_from = NULL;
 		HEAPextract(_waiting_uthreads, (void **) &load_from);
+		HEAPinsert(_waiting_uthreads, (void *) save_to);
 
 		// TODO: fix this crazy possibility of race conditions!
 		pthread_mutex_unlock(&_mutex);
@@ -181,12 +183,28 @@ void uthread_yield()
 
 void uthread_exit()
 {
-	pthread_mutex_lock(&_mutex);
 	printf("uthread_exit()\n");
+	pthread_mutex_lock(&_mutex);
+
 	// Check if a uthread can use this kthread. If so, pop the uthread from the
 	// heap and use this kthread. Else, destroy the kthread.
-	assert(false);  // TODO: not implemented error
-	pthread_mutex_unlock(&_mutex);
+	if (HEAPsize(_waiting_uthreads) > 0)
+	{
+		// TODO: fix this crazy use of memory!
+		uthread_t* load_from = NULL;
+		HEAPextract(_waiting_uthreads, (void **) &load_from);
+
+		// TODO: fix this crazy possibility of race conditions!
+		pthread_mutex_unlock(&_mutex);
+		ucontext_t* uc = &(load_from->ucontext);
+		setcontext(uc);
+		uc->uc_stack.ss_sp = malloc(UCONTEXT_STACK_SIZE);
+		uc->uc_stack.ss_size = UCONTEXT_STACK_SIZE;
+	}
+	else
+	{
+		pthread_mutex_unlock(&_mutex);
+	}
 }
 
 
@@ -245,7 +263,10 @@ int kthread_runner(void* ptr)
 	kt->initial_utime = ru.ru_utime;
 	kt->initial_stime = ru.ru_stime;
 
-	setcontext(&(ut->ucontext));
+	ucontext_t* uc = &(ut->ucontext);
+	setcontext(uc);
+	uc->uc_stack.ss_sp = malloc(UCONTEXT_STACK_SIZE);
+	uc->uc_stack.ss_size = UCONTEXT_STACK_SIZE;
 
 	assert(false);  // Execution should never reach here.
 }
