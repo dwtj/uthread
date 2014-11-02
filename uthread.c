@@ -87,6 +87,10 @@ void uthread_system_init(int max_num_kthreads)
 	assert(1 <= max_num_kthreads && max_num_kthreads <= MAX_NUM_UTHREADS);
 	assert(_waiting_uthreads == NULL);  // Function must only be called once.
 
+	// Initialize some globals.
+	_num_kthreads = 0;
+	_max_num_kthreads = max_num_kthreads;
+	// TODO: initialize `_default_pthread_attr()`.
 	getcontext(&_system_initializer_context);
 
 	// The highest priority uthread record (i.e. the on with the lowest running
@@ -96,15 +100,11 @@ void uthread_system_init(int max_num_kthreads)
 
 	// Allocate memory for each `kthread_t` and mark each as inactive (i.e. not
 	// running).
-	_kthreads = malloc(_max_num_kthreads * sizeof(kthread_t));
+	_kthreads = malloc(max_num_kthreads * sizeof(kthread_t));
 	for (int i = 0; i < _max_num_kthreads; i++) {
 		_kthreads[i].running = NULL;
 	}
 
-	// Initialize other globals.
-	_num_kthreads = 0;
-	_max_num_kthreads = max_num_kthreads;
-	// TODO: initialize `_default_pthread_attr()`.
 }
 
 
@@ -122,7 +122,7 @@ int uthread_create(void (*run_func)())
 		pthread_mutex_lock(&_shutdown_mutex);
 	}
 
-	uthread_t* uthread = malloc(sizeof(uthread));
+	uthread_t* uthread = malloc(sizeof(uthread_t));
 	printf("DEBUG: allocated uthread at %p\n", (void*) uthread);
 	assert (uthread != NULL);
 	uthread_init(uthread, run_func);
@@ -219,7 +219,7 @@ void uthread_exit()
 
 	// Stop running the `prev` `uthread`, and clean up any references to it.
 	self->running = NULL;
-	//free(prev);
+	free(prev);
 
 	// Check if a `uthread` can use this kthread.
 	if (HEAPsize(_waiting_uthreads) > 0)
