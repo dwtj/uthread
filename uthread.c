@@ -38,7 +38,7 @@ typedef struct {
 
 
 typedef struct {
-	pthread_t pthread;
+	int tid;
 	struct timeval initial_utime;
 	struct timeval initial_stime;
 	bool active;
@@ -53,6 +53,7 @@ void kthread_init(kthread_t* kt);
 void uthread_init(uthread_t* ut, void (*run_func)());
 int kthread_runner(void* ptr);
 int kthread_create(kthread_t* kt, uthread_t* ut);
+void kthread_handoff(uthread_t* load_from, uthread_t* save_to);
 kthread_t* find_inactive_kthread();
 uthread_t* find_inactive_uthread();
 
@@ -163,7 +164,11 @@ void uthread_yield()
 {
 	pthread_mutex_lock(&_mutex);
 
-	assert(false);  // TODO: not implemented error
+	if (HEAPsize(_waiting_uthreads) > 0) {
+		// TODO: everything
+		assert(false);  // TODO: not implemented error
+		kthread_handoff(NULL, NULL);
+	}
 
 	pthread_mutex_unlock(&_mutex);
 }
@@ -182,6 +187,10 @@ void uthread_exit()
 
 
 /* Define primary helper functions. **********************************************/
+
+void kthread_handoff(uthread_t* load_from, uthread_t* save_to) {
+	assert(false);  // TODO: not implemented error
+}
 
 void uthread_init(uthread_t* uthread, void (*run_func)())
 {
