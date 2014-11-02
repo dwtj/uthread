@@ -18,10 +18,11 @@
 
 /* Define private directives. ****************************************************/
 
-#define UCONTEXT_STACK_SIZE  16384
-#define CLONE_STACK_SIZE     16384
-#define MAX_NUM_UTHREADS     1000
-#define gettid()             (syscall(SYS_gettid))
+#define UCONTEXT_STACK_SIZE     16384
+#define CLONE_STACK_SIZE        16384
+#define MAX_NUM_UTHREADS        1000
+#define gettid()                (syscall(SYS_gettid))
+#define tgkill(tgid, tid, sig)  (syscall(SYS_tgkill, tgid, tid, sig))
 
 /* Define custom data structures. ************************************************/
 
@@ -54,6 +55,7 @@ void uthread_init(uthread_t* ut, void (*run_func)());
 int kthread_runner(void* ptr);
 int kthread_create(kthread_t* kt, uthread_t* ut);
 void kthread_handoff(uthread_t* load_from, uthread_t* save_to);
+kthread_t* kthread_self();
 kthread_t* find_inactive_kthread();
 uthread_t* find_inactive_uthread();
 
@@ -69,6 +71,7 @@ int _num_uthreads;
 uthread_t* _uthreads;
 kthread_t* _kthreads;
 pthread_mutex_t _mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t _shutdown_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_attr_t* _default_pthread_attr = NULL;
 ucontext_t _system_initializer_context;
 
@@ -119,6 +122,11 @@ int uthread_create(void (*run_func)())
 
 	puts("uthread_create()");
 	pthread_mutex_lock(&_mutex);
+
+	// Lock the system from shutting down while there is a uthread running.
+	if (_num_kthreads == 0) {
+		pthread_mutex_lock(&_shutdown_mutex);
+	}
 
 	_num_uthreads += 1;
 
@@ -186,11 +194,24 @@ void uthread_exit()
 {
 	printf("uthread_exit()\n");
 	pthread_mutex_lock(&_mutex);
+	kthread_t* self = kthread_self();
+	pthread_mutex_unlock(&_mutex);
 
-	// Check if a uthread can use this kthread. If so, pop the uthread from the
-	// heap and use this kthread. Else, destroy the kthread.
+	// If the calling thread is not a `kthread` created by the system, block on a
+	// mutex until there are no running `kthreads`.
+	if (self == NULL) {
+		pthread_mutex_lock(&_shutdown_mutex);
+		pthread_mutex_unlock(&_shutdown_mutex);
+		return;
+	}
+
+	pthread_mutex_lock(&_mutex);
+	self = kthread_self();
+
+	// Check if a uthread can use this kthread.
 	if (HEAPsize(_waiting_uthreads) > 0)
 	{
+		// Use this `kthread`
 		// TODO: fix this crazy use of memory!
 		uthread_t* load_from = NULL;
 		HEAPextract(_waiting_uthreads, (void **) &load_from);
@@ -202,7 +223,21 @@ void uthread_exit()
 	}
 	else
 	{
+		// There are no `uthread`s that might use `self`.
+
+		// Clean up `uthread`-associated system data structures.
+		// TODO: Follow a link from `kthread` to a `uthread` and what is found there
+		// as inactive.
+
+		// Clean up `kthread`-associated system data structures.
+		self->active = false;
+		_num_kthreads--;
+
+		// Free lock and kill self.
+		int self_tid = self->tid;
 		pthread_mutex_unlock(&_mutex);
+		tgkill(self_tid, getpid(), SIGKILL);
+		assert(false);  // Control should never reach here.
 	}
 }
 
@@ -214,6 +249,7 @@ void kthread_handoff(uthread_t* load_from, uthread_t* save_to) {
 	assert(load_from != NULL && save_to != NULL);
 	swapcontext(&(save_to->ucontext), &(load_from->ucontext));
 }
+
 
 void uthread_init(uthread_t* uthread, void (*run_func)())
 {
@@ -236,9 +272,8 @@ void uthread_init(uthread_t* uthread, void (*run_func)())
 }
 
 
-
 /**
- * This function is expected to be a `start_routine` for `pthread_create()`
+ * This function is expected to be a `start_routine` for `clone()`
  *
  * This interprets the given void pointer as a pointer to a `ptrpair_t`. The `fst`
  * pointer is interpreted as a `kthread_t*` and the second pointer is interpreted
@@ -266,6 +301,28 @@ int kthread_runner(void* ptr)
 	setcontext(uc);
 
 	assert(false);  // Execution should never reach here.
+}
+
+
+/**
+ * Returns a pointer to the `kthread_t` that is executing the function. If the
+ * thread which is calling the function is not a `kthread` created by by this
+ * system, then `NULL` is returned.
+ */
+kthread_t* kthread_self()
+{
+	kthread_t* cur = _kthreads;
+	kthread_t* end = _kthreads + _max_num_kthreads;
+	int self_tid = gettid();
+	while (cur < end)
+	{
+		if (cur->tid == self_tid) {
+			assert(cur->active);  // TODO: make this more robust
+			return cur;
+		}
+		cur++;
+	}
+	return NULL;
 }
 
 
