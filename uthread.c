@@ -113,7 +113,7 @@ int uthread_create(void (*run_func)())
 {
 	int rv;
 
-	puts("DEBUG: uthread_create()");
+	//puts("DEBUG: uthread_create()");
 	pthread_mutex_lock(&_mutex);
 	assert(_shutdown == false);
 
@@ -123,20 +123,20 @@ int uthread_create(void (*run_func)())
 	}
 
 	uthread_t* uthread = malloc(sizeof(uthread_t));
-	printf("DEBUG: allocated uthread at %p\n", (void*) uthread);
+	//printf("DEBUG: allocated uthread at %p\n", (void*) uthread);
 	assert (uthread != NULL);
 	uthread_init(uthread, run_func);
 
 	if (_num_kthreads == _max_num_kthreads)
 	{
 		// Add the new `uthread` to the heap.
-		puts("DEBUG: Adding new `uthread` to heap.");
+		//puts("DEBUG: Adding new `uthread` to heap.");
 		HEAPinsert(_waiting_uthreads, (const void *) uthread);
 	}
 	else
 	{
 		// Make a new `kthread` to run this new `uthread` immediately.
-		puts("DEBUG: Starting `uthread` on new `kthread`.");
+		//puts("DEBUG: Starting `uthread` on new `kthread`.");
 
 		assert(HEAPsize(_waiting_uthreads) == 0);  // There must not be waiting
 												   // uthreads if `_num_kthreads` is
@@ -159,7 +159,7 @@ int uthread_create(void (*run_func)())
 
 void uthread_yield()
 {
-	puts("DEBUG: uthread_yield()");
+	//puts("DEBUG: uthread_yield()");
 	pthread_mutex_lock(&_mutex);
 	assert(_shutdown == false);
 
@@ -191,7 +191,7 @@ void uthread_yield()
 
 void uthread_exit()
 {
-	puts("DEBUG: uthread_exit()");
+	//puts("DEBUG: uthread_exit()");
 
 	pthread_mutex_lock(&_mutex);
 	kthread_t* self = kthread_self();
@@ -230,8 +230,8 @@ void uthread_exit()
 		assert(next != NULL);
 		self->running = next;
 
-		printf("DEBUG: The `uthread` at %p has exited on Thread %d.\n", prev, self->tid);
-		printf("DEBUG: The `uthread` at %p is being started on Thread %d.\n", next, self->tid);
+		//printf("DEBUG: The `uthread` at %p has exited on Thread %d.\n", prev, self->tid);
+		//printf("DEBUG: The `uthread` at %p is being started on Thread %d.\n", next, self->tid);
 
 		// TODO: update the `kthread` timestamp.
 		// TODO: update the `uthread` running time.
@@ -269,7 +269,7 @@ void uthread_exit()
 void kthread_handoff(uthread_t* prev, uthread_t* next) {
 	assert(prev != NULL);
 	assert(next != NULL);
-	printf("DEBUG: Thread %d is handing off from %p to %p.\n", gettid(), prev, next);
+	//printf("DEBUG: Thread %d is handing off from %p to %p.\n", gettid(), prev, next);
 	swapcontext(&(prev->ucontext), &(next->ucontext));
 }
 
@@ -299,7 +299,7 @@ void uthread_init(uthread_t* uthread, void (*run_func)())
  */
 int kthread_runner(void* ptr)
 {
-	printf("DEBUG: kthread_runner(): tid = %d\n", gettid());
+	//printf("DEBUG: kthread_runner(): tid = %d\n", gettid());
 
 	kthread_t* kt = ptr;
 	assert(kt != NULL);
