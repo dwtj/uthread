@@ -11,7 +11,6 @@
 #include <sys/syscall.h>
 
 #include "lib/heap.h"
-#include "lib/tvhelp.h"
 
 #include "uthread.h"
 
@@ -392,15 +391,15 @@ void transfer_elapsed_time(kthread_t* kt, uthread_t* ut)
 			ut->running_time.tv_sec, ut->running_time.tv_usec);
 
 	// Add the change to `utime` to `running_time`.
-	tv = timeval_diff(prev_utime_timestamp, kt->utime_timestamp);
-	ut->running_time = timeval_add(ut->running_time, tv);
+	timersub(&(kt->utime_timestamp), &(prev_utime_timestamp), &tv);
+	timeradd(&(ut->running_time), &tv, &(ut->running_time));
 
 	printf("DEBUG: running time half-through transfer: %ld:%ld\n",
 			ut->running_time.tv_sec, ut->running_time.tv_usec);
 
 	// Add the change to `stime` to `running_time`.
-	tv = timeval_diff(prev_stime_timestamp, kt->stime_timestamp);
-	ut->running_time = timeval_add(ut->running_time, tv);
+	timersub(&(kt->stime_timestamp), &(prev_stime_timestamp), &tv);
+	timeradd(&(ut->running_time), &tv, &(ut->running_time));
 	
 	printf("DEBUG: running time after transfer: %ld:%ld\n",
 			ut->running_time.tv_sec, ut->running_time.tv_usec);
@@ -457,6 +456,5 @@ int uthread_priority(const void* key1, const void* key2)
 	const uthread_t* rec1 = key1;
 	const uthread_t* rec2 = key2;
 
-	int cmp = timeval_cmp(rec1->running_time, rec2->running_time);
-	return -cmp;
+	return timercmp(&(rec1->running_time), &(rec2->running_time), >);
 }
