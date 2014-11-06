@@ -115,7 +115,6 @@ int uthread_create(void (*run_func)())
 {
 	int rv;
 
-	//puts("DEBUG: uthread_create()");
 	pthread_mutex_lock(&_mutex);
 	assert(_shutdown == false);
 
@@ -125,20 +124,17 @@ int uthread_create(void (*run_func)())
 	}
 
 	uthread_t* uthread = malloc(sizeof(uthread_t));
-	//printf("DEBUG: allocated uthread at %p\n", (void*) uthread);
 	assert (uthread != NULL);
 	uthread_init(uthread, run_func);
 
 	if (_num_kthreads == _max_num_kthreads)
 	{
 		// Add the new `uthread` to the heap.
-		//puts("DEBUG: Adding new `uthread` to heap.");
 		HEAPinsert(_waiting_uthreads, (const void *) uthread);
 	}
 	else
 	{
 		// Make a new `kthread` to run this new `uthread` immediately.
-		//puts("DEBUG: Starting `uthread` on new `kthread`.");
 
 		assert(HEAPsize(_waiting_uthreads) == 0);  // There must not be waiting
 												   // uthreads if `_num_kthreads` is
@@ -161,7 +157,6 @@ int uthread_create(void (*run_func)())
 
 void uthread_yield()
 {
-	//puts("DEBUG: uthread_yield()");
 	pthread_mutex_lock(&_mutex);
 	assert(_shutdown == false);
 
@@ -200,8 +195,6 @@ void uthread_yield()
 
 void uthread_exit()
 {
-	//puts("DEBUG: uthread_exit()");
-
 	pthread_mutex_lock(&_mutex);
 	kthread_t* self = kthread_self();
 	int self_tid;
@@ -239,9 +232,6 @@ void uthread_exit()
 		assert(next != NULL);
 		self->running = next;
 
-		//printf("DEBUG: The `uthread` at %p has exited on Thread %d.\n", prev, self->tid);
-		//printf("DEBUG: The `uthread` at %p is being started on Thread %d.\n", next, self->tid);
-
 		kthread_update_timestamps(self);
 
 		// TODO: consider possibility of race conditions.
@@ -274,10 +264,11 @@ void uthread_exit()
 
 /* Define primary helper functions. **********************************************/
 
-void kthread_handoff(uthread_t* prev, uthread_t* next) {
+void kthread_handoff(uthread_t* prev, uthread_t* next)
+{
 	assert(prev != NULL);
 	assert(next != NULL);
-	//printf("DEBUG: Thread %d is handing off from %p to %p.\n", gettid(), prev, next);
+
 	swapcontext(&(prev->ucontext), &(next->ucontext));
 }
 
@@ -307,8 +298,6 @@ void uthread_init(uthread_t* uthread, void (*run_func)())
  */
 int kthread_runner(void* ptr)
 {
-	//printf("DEBUG: kthread_runner(): tid = %d\n", gettid());
-
 	kthread_t* kt = ptr;
 	assert(kt != NULL);
 	assert(kt->running != NULL);
@@ -380,44 +369,21 @@ int kthread_create(kthread_t* kt, uthread_t* ut)
  */
 void transfer_elapsed_time(kthread_t* kt, uthread_t* ut)
 {
-	//puts("DEBUG: transfer_elapsed_time()");
 	assert(kt == kthread_self());
 
 	struct timeval tv;
 	struct timeval prev_utime_timestamp = kt->utime_timestamp;
 	struct timeval prev_stime_timestamp = kt->stime_timestamp;
-	/*
-	printf("DEBUG: timestamps before update: %ld, %ld\n",
-			prev_utime_timestamp, prev_stime_timestamp);
-	*/
 
 	kthread_update_timestamps(kt);
-
-	/*
-	printf("DEBUG: timestamps after update: %ld, %ld\n",
-		   kt->utime_timestamp, kt->stime_timestamp);
-
-	printf("DEBUG: running time before transfer: %ld:%ld\n",
-			ut->running_time.tv_sec, ut->running_time.tv_usec);
-	*/
 
 	// Add the change to `utime` to `running_time`.
 	timersub(&(kt->utime_timestamp), &(prev_utime_timestamp), &tv);
 	timeradd(&(ut->running_time), &tv, &(ut->running_time));
 
-	/*
-	printf("DEBUG: running time half-through transfer: %ld:%ld\n",
-			ut->running_time.tv_sec, ut->running_time.tv_usec);
-	*/
-
 	// Add the change to `stime` to `running_time`.
 	timersub(&(kt->stime_timestamp), &(prev_stime_timestamp), &tv);
 	timeradd(&(ut->running_time), &tv, &(ut->running_time));
-	
-	/*
-	printf("DEBUG: running time after transfer: %ld:%ld\n",
-			ut->running_time.tv_sec, ut->running_time.tv_usec);
-	*/
 }
 
 
@@ -484,7 +450,7 @@ int uthread_priority(const void* key1, const void* key2)
 void uthread_print(const void* key) {
 	const uthread_t* ut = key;
 	const struct timeval running_time = ut->running_time;
-	printf("uthread rt: %d.%06d\n", running_time.tv_sec, running_time.tv_usec);
+	printf("uthread.running_time = %d.%06d\n", running_time.tv_sec, running_time.tv_usec);
 }
 
 
