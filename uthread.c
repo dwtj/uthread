@@ -374,35 +374,44 @@ int kthread_create(kthread_t* kt, uthread_t* ut)
  */
 void transfer_elapsed_time(kthread_t* kt, uthread_t* ut)
 {
-	puts("DEBUG: transfer_elapsed_time()");
+	//puts("DEBUG: transfer_elapsed_time()");
 	assert(kt == kthread_self());
 
 	struct timeval tv;
 	struct timeval prev_utime_timestamp = kt->utime_timestamp;
 	struct timeval prev_stime_timestamp = kt->stime_timestamp;
-	printf("DEBUG: timestamps before update: %ld, %ld\n", prev_utime_timestamp, prev_stime_timestamp);
+	/*
+	printf("DEBUG: timestamps before update: %ld, %ld\n",
+			prev_utime_timestamp, prev_stime_timestamp);
+	*/
 
 	kthread_update_timestamps(kt);
 
+	/*
 	printf("DEBUG: timestamps after update: %ld, %ld\n",
 		   kt->utime_timestamp, kt->stime_timestamp);
 
 	printf("DEBUG: running time before transfer: %ld:%ld\n",
 			ut->running_time.tv_sec, ut->running_time.tv_usec);
+	*/
 
 	// Add the change to `utime` to `running_time`.
 	timersub(&(kt->utime_timestamp), &(prev_utime_timestamp), &tv);
 	timeradd(&(ut->running_time), &tv, &(ut->running_time));
 
+	/*
 	printf("DEBUG: running time half-through transfer: %ld:%ld\n",
 			ut->running_time.tv_sec, ut->running_time.tv_usec);
+	*/
 
 	// Add the change to `stime` to `running_time`.
 	timersub(&(kt->stime_timestamp), &(prev_stime_timestamp), &tv);
 	timeradd(&(ut->running_time), &tv, &(ut->running_time));
 	
+	/*
 	printf("DEBUG: running time after transfer: %ld:%ld\n",
 			ut->running_time.tv_sec, ut->running_time.tv_usec);
+	*/
 }
 
 
