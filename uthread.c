@@ -39,8 +39,8 @@ typedef struct {
 
 typedef struct {
 	int tid;
-	struct timeval initial_utime;
-	struct timeval initial_stime;
+	struct timeval utime_timestamp;
+	struct timeval stime_timestamp;
 	uthread_t* running;
 } kthread_t;
 
@@ -51,7 +51,9 @@ typedef struct {
 int uthread_priority(const void* key1, const void* key2);
 void uthread_init(uthread_t* ut, void (*run_func)());
 int kthread_runner(void* ptr);
-void kthread_timestamp(kthread_t* kt);
+void transfer_elapsed_time(kthread_t* kt, uthread_t* ut);
+void kthread_update_timestamps(kthread_t* kt);
+void get_thread_rusage(struct rusage* ru);
 int kthread_create(kthread_t* kt, uthread_t* ut);
 void kthread_handoff(uthread_t* load_from, uthread_t* save_to);
 kthread_t* kthread_self();
@@ -169,8 +171,9 @@ void uthread_yield()
 
 	if (HEAPsize(_waiting_uthreads) > 0)
 	{
-		// Save the current running `uthread` to the heap.
+		// Save the previous `uthread` to the heap.
 		uthread_t* prev = self->running;
+		transfer_elapsed_time(self, prev);
 		HEAPinsert(_waiting_uthreads, (void *) prev);
 
 		// Get another `uthread` from the heap to be run.
@@ -187,6 +190,7 @@ void uthread_yield()
 		pthread_mutex_unlock(&_mutex);
 	}
 }
+
 
 
 void uthread_exit()
@@ -233,8 +237,7 @@ void uthread_exit()
 		//printf("DEBUG: The `uthread` at %p has exited on Thread %d.\n", prev, self->tid);
 		//printf("DEBUG: The `uthread` at %p is being started on Thread %d.\n", next, self->tid);
 
-		// TODO: update the `kthread` timestamp.
-		// TODO: update the `uthread` running time.
+		kthread_update_timestamps(self);
 
 		// TODO: consider possibility of race conditions.
 		pthread_mutex_unlock(&_mutex);
@@ -306,7 +309,7 @@ int kthread_runner(void* ptr)
 	assert(kt->running != NULL);
 
 	kt->tid = gettid();
-	kthread_timestamp(kt);
+	kthread_update_timestamps(kt);
 
 	// Switch to running the `uthread`.
 	setcontext(&(kt->running->ucontext));
@@ -357,6 +360,53 @@ int kthread_create(kthread_t* kt, uthread_t* ut)
 }
 
 
+/**
+ * Updates the time info in both the given `kthread` and the given `uthread`
+ * by transfering the time which has elapsed since the timestamps of `kthread`
+ * were updated to the running time of `uthread`.
+ *
+ * This means that the `kthread` will be updated with new timestamps and that
+ * any time which has elapsed since the last timestamps will be added to the
+ * running time of the given `uthread`. Both the elapsed `utime` and the elapsed
+ * `stime` are added.
+ *
+ * Note that the given `kt` is assumed to be the the same as would be returned
+ * by `kthread_self()`.
+ */
+void transfer_elapsed_time(kthread_t* kt, uthread_t* ut)
+{
+	puts("DEBUG: transfer_elapsed_time()");
+	assert(kt == kthread_self());
+
+	struct timeval tv;
+	struct timeval prev_utime_timestamp = kt->utime_timestamp;
+	struct timeval prev_stime_timestamp = kt->stime_timestamp;
+	printf("DEBUG: timestamps before update: %ld, %ld\n", prev_utime_timestamp, prev_stime_timestamp);
+
+	kthread_update_timestamps(kt);
+
+	printf("DEBUG: timestamps after update: %ld, %ld\n",
+		   kt->utime_timestamp, kt->stime_timestamp);
+
+	printf("DEBUG: running time before transfer: %ld:%ld\n",
+			ut->running_time.tv_sec, ut->running_time.tv_usec);
+
+	// Add the change to `utime` to `running_time`.
+	tv = timeval_diff(prev_utime_timestamp, kt->utime_timestamp);
+	ut->running_time = timeval_add(ut->running_time, tv);
+
+	printf("DEBUG: running time half-through transfer: %ld:%ld\n",
+			ut->running_time.tv_sec, ut->running_time.tv_usec);
+
+	// Add the change to `stime` to `running_time`.
+	tv = timeval_diff(prev_stime_timestamp, kt->stime_timestamp);
+	ut->running_time = timeval_add(ut->running_time, tv);
+	
+	printf("DEBUG: running time after transfer: %ld:%ld\n",
+			ut->running_time.tv_sec, ut->running_time.tv_usec);
+}
+
+
 
 
 /* Define minor helper functions. ************************************************/
@@ -378,14 +428,22 @@ kthread_t* find_inactive_kthread()
 }
 
 
-void kthread_timestamp(kthread_t* kt)
+
+void get_thread_rusage(struct rusage* rv)
+{
+	const int RUSAGE_THREAD = 1;   // TODO: Fix this hack!
+	getrusage(RUSAGE_THREAD, rv);  // Thread-specific rusage only available on linux.
+}
+
+
+void kthread_update_timestamps(kthread_t* kt)
 {
 	struct rusage ru;
-	const int RUSAGE_THREAD = 1;	// TODO: Fix this hack!
-	getrusage(RUSAGE_THREAD, &ru);  // Only available on linux.
-	kt->initial_utime = ru.ru_utime;
-	kt->initial_stime = ru.ru_stime;
+	get_thread_rusage(&ru);
+	kt->utime_timestamp = ru.ru_utime;
+	kt->stime_timestamp = ru.ru_stime;
 }
+
 
 
 /**
