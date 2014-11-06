@@ -57,6 +57,8 @@ int kthread_create(kthread_t* kt, uthread_t* ut);
 void kthread_handoff(uthread_t* load_from, uthread_t* save_to);
 kthread_t* kthread_self();
 kthread_t* find_inactive_kthread();
+bool waiting_uthread_has_priority_over(uthread_t* ut);
+void uthread_print(const void* key);
 
 
 
@@ -107,7 +109,6 @@ void uthread_system_init(int max_num_kthreads)
 	}
 
 }
-
 
 
 int uthread_create(void (*run_func)())
@@ -168,21 +169,26 @@ void uthread_yield()
 	assert(self != NULL);  // Yield cannot be called by a thread that was not
 						   // created by the system.
 
-	if (HEAPsize(_waiting_uthreads) > 0)
-	{
-		// Save the previous `uthread` to the heap.
-		uthread_t* prev = self->running;
-		transfer_elapsed_time(self, prev);
-		HEAPinsert(_waiting_uthreads, (void *) prev);
+	uthread_t* cur = self->running;
+	transfer_elapsed_time(self, cur);
 
+	//HEAPprint(_waiting_uthreads, uthread_print);
+
+	// Yield this `kthread` to the highest-priority waiting `uthread` if it has
+	// a higher priority than the currently-running `uthread`.
+	if (waiting_uthread_has_priority_over(cur))
+	{
 		// Get another `uthread` from the heap to be run.
 		uthread_t* next = NULL;
 		HEAPextract(_waiting_uthreads, (void **) &next);
 		self->running = next;
 
+		// Save the current `uthread` to the heap.
+		HEAPinsert(_waiting_uthreads, (void *) cur);
+
 		// TODO: consider possibility of race conditions!
 		pthread_mutex_unlock(&_mutex);
-		kthread_handoff(prev, next);
+		kthread_handoff(cur, next);
 	}
 	else
 	{
@@ -453,7 +459,6 @@ void kthread_update_timestamps(kthread_t* kt)
 }
 
 
-
 /**
  * Interprets `key1` and `key2` as pointers to `uthread_t` objects, and
  * compares them. The comparison is based on the running time of the two records.
@@ -462,8 +467,37 @@ void kthread_update_timestamps(kthread_t* kt)
  */
 int uthread_priority(const void* key1, const void* key2)
 {
-	const uthread_t* rec1 = key1;
-	const uthread_t* rec2 = key2;
+	const struct timeval tv1 = ((const uthread_t*) key1)->running_time;
+	const struct timeval tv2 = ((const uthread_t*) key2)->running_time;
 
-	return timercmp(&(rec1->running_time), &(rec2->running_time), >);
+	if (timercmp(&tv1, &tv2, <))
+		return 1;
+	if (timercmp(&tv1, &tv2, ==))
+		return 0;
+	if (timercmp(&tv1, &tv2, >))
+		return -1;
+
+	assert(false);  // All possibilities should be covered by the conditions above.
+}
+
+
+void uthread_print(const void* key) {
+	const uthread_t* ut = key;
+	const struct timeval running_time = ut->running_time;
+	printf("uthread rt: %d.%06d\n", running_time.tv_sec, running_time.tv_usec);
+}
+
+
+/**
+ * Returns true if and only if there is a `uthread` in `_waiting_uthreads` whose
+ * priority is higher than the the priority of the given `uthread`.
+ */
+bool waiting_uthread_has_priority_over(uthread_t* ut)
+{
+	if (HEAPsize(_waiting_uthreads) > 0) {
+		const uthread_t* highest_priority_waiting = HEAPpeek(_waiting_uthreads);
+		return uthread_priority(ut, highest_priority_waiting) < 0;
+	} else {
+		return false;
+	}
 }
