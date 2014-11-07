@@ -1,5 +1,7 @@
 # uthread #
 
+**Author:** David Johnston: <dwtj@iastate.edu>
+
 The `uthread` library is a cooperative user thread library. It performs dynamic many-to-many mappings between user threads and kernel threads.
 
 The user code first chooses the maximum number of kernel threads that will be run. Then, an arbitrary number of user threads can be created to run on this number of threads. See the header file, `uthread.h`, for details about the public interface.
