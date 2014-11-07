@@ -35,7 +35,6 @@ typedef struct {
 	struct timeval running_time;
 } uthread_t;
 
-
 typedef struct {
 	int tid;
 	struct timeval utime_timestamp;
@@ -45,7 +44,7 @@ typedef struct {
 
 
 
-/* Declare helper functions. *****************************************************/
+/* Declare private helper functions. *********************************************/
 
 int uthread_priority(const void* key1, const void* key2);
 void uthread_init(uthread_t* ut, void (*run_func)());
@@ -59,7 +58,6 @@ kthread_t* kthread_self();
 kthread_t* find_inactive_kthread();
 bool waiting_uthread_has_priority_over(uthread_t* ut);
 void uthread_print(const void* key);
-
 
 
 
@@ -79,11 +77,18 @@ ucontext_t _system_initializer_context;
 
 /* Define primary public functions. **********************************************/
 
+/**
+ * See `uthread.h`.
+ */
 void system_init(int max_num_kthreads) {
 	uthread_system_init(max_num_kthreads);
 }
 
 
+
+/**
+ * See `uthread.h`.
+ */
 void uthread_system_init(int max_num_kthreads)
 {
 	assert(_shutdown == false);
@@ -111,6 +116,10 @@ void uthread_system_init(int max_num_kthreads)
 }
 
 
+
+/**
+ * See `uthread.h`.
+ */
 int uthread_create(void (*run_func)())
 {
 	int rv;
@@ -154,7 +163,9 @@ int uthread_create(void (*run_func)())
 
 
 
-
+/**
+ * See `uthread.h`.
+ */
 void uthread_yield()
 {
 	pthread_mutex_lock(&_mutex);
@@ -193,6 +204,9 @@ void uthread_yield()
 
 
 
+/**
+ * See `uthread.h`.
+ */
 void uthread_exit()
 {
 	pthread_mutex_lock(&_mutex);
@@ -264,6 +278,10 @@ void uthread_exit()
 
 /* Define primary helper functions. **********************************************/
 
+/**
+ * Makes the current `kthread` stop running the `prev` `uthread` and start running
+ * the `next` `uthread`. Progress on the `prev` `uthread` is saved.
+ */
 void kthread_handoff(uthread_t* prev, uthread_t* next)
 {
 	assert(prev != NULL);
@@ -273,6 +291,11 @@ void kthread_handoff(uthread_t* prev, uthread_t* next)
 }
 
 
+
+/**
+ * Initializes `uthread`, such that it is ready to be run. When the `uthread` is
+ * started running on a `kthread`, it will start by running the given `run_func()`.
+ */
 void uthread_init(uthread_t* uthread, void (*run_func)())
 {
 	assert(uthread != NULL);
@@ -294,7 +317,9 @@ void uthread_init(uthread_t* uthread, void (*run_func)())
 /**
  * This function is expected to be a `start_routine` for `clone()`
  *
- * This interprets the given void pointer as a pointer to a `kthread_t`.
+ * The function interprets the given void pointer as a pointer to a `kthread_t`.
+ * The `running` field of that `kthread_t` must already be set to the `uthread`
+ * that is to be started on the new `kthread`.
  */
 int kthread_runner(void* ptr)
 {
@@ -310,6 +335,7 @@ int kthread_runner(void* ptr)
 
 	assert(false);  // Execution should never reach here.
 }
+
 
 
 /**
@@ -334,6 +360,7 @@ kthread_t* kthread_self()
 }
 
 
+
 /**
  * Run the given user thread on the given kernel thread. The kernel thread must
  * not already be active.
@@ -352,6 +379,7 @@ int kthread_create(kthread_t* kt, uthread_t* ut)
 	assert(pid > 0);
 	return pid;
 }
+
 
 
 /**
@@ -388,12 +416,14 @@ void transfer_elapsed_time(kthread_t* kt, uthread_t* ut)
 
 
 
-
 /* Define minor helper functions. ************************************************/
 
 /**
- * Returns a pointer to a `kthread_t` slot which is which is not active. If
- * no such `kthread_t` slot exists, then `NULL` is returned.
+ * Returns a pointer to an unused slot in `_kthreads` (i.e. a `kthread_t*` which
+ * points to a `kthread_t` that is not running).
+ *
+ * If no such `kthread_t` slot exists (i.e. if `_num_kthread == _max_num_kthread`),
+ * then `NULL` is returned.
  */
 kthread_t* find_inactive_kthread()
 {
@@ -409,11 +439,16 @@ kthread_t* find_inactive_kthread()
 
 
 
+/**
+ * Saves the current `rusage` information of the calling thread to the given memory
+ * location.
+ */
 void get_thread_rusage(struct rusage* rv)
 {
 	const int RUSAGE_THREAD = 1;   // TODO: Fix this hack!
 	getrusage(RUSAGE_THREAD, rv);  // Thread-specific rusage only available on linux.
 }
+
 
 
 void kthread_update_timestamps(kthread_t* kt)
@@ -423,6 +458,7 @@ void kthread_update_timestamps(kthread_t* kt)
 	kt->utime_timestamp = ru.ru_utime;
 	kt->stime_timestamp = ru.ru_stime;
 }
+
 
 
 /**
@@ -447,11 +483,22 @@ int uthread_priority(const void* key1, const void* key2)
 }
 
 
-void uthread_print(const void* key) {
+
+/**
+ * This interprets the given pointer as a pointer to a `uthread_t`, then prints out
+ * some information about the `uthread_t` stored there.
+ *
+ * This function is meant to be used for debugging uses only, in particular, with
+ * the `HEAPprint()` function to print out the contents of `_waiting_uthreads`.
+ */
+void uthread_print(const void* key)
+{
 	const uthread_t* ut = key;
 	const struct timeval running_time = ut->running_time;
-	printf("uthread.running_time = %d.%06d\n", running_time.tv_sec, running_time.tv_usec);
+	printf("uthread %p: running_time = %d.%06d\n",
+			ut, running_time.tv_sec, running_time.tv_usec);
 }
+
 
 
 /**
