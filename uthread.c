@@ -39,6 +39,7 @@ typedef struct {
 	int tid;
 	struct timeval utime_timestamp;
 	struct timeval stime_timestamp;
+	void* stack;
 	uthread_t* running;
 } kthread_t;
 
@@ -50,6 +51,8 @@ int uthread_priority(const void* key1, const void* key2);
 void uthread_init(uthread_t* ut, void (*run_func)());
 void uthread_destroy(uthread_t* ut);
 int kthread_runner(void* ptr);
+void kthread_init(kthread_t* kt);
+void kthread_destroy(kthread_t* kt);
 void transfer_elapsed_time(kthread_t* kt, uthread_t* ut);
 void kthread_update_timestamps(kthread_t* kt);
 void get_thread_rusage(struct rusage* ru);
@@ -59,6 +62,7 @@ kthread_t* kthread_self();
 kthread_t* find_inactive_kthread();
 bool waiting_uthread_has_priority_over(uthread_t* ut);
 void uthread_print(const void* key);
+void uthread_system_shutdown();
 
 
 
@@ -110,8 +114,10 @@ void uthread_system_init(int max_num_kthreads)
 	// Allocate memory for each `kthread_t` and mark each as inactive (i.e. not
 	// running).
 	_kthreads = malloc(max_num_kthreads * sizeof(kthread_t));
-	for (int i = 0; i < _max_num_kthreads; i++) {
-		_kthreads[i].running = NULL;
+	assert(_kthreads != NULL);
+
+	for (kthread_t* kt = _kthreads; kt < _kthreads + _max_num_kthreads; kt++) {
+		kthread_init(kt);
 	}
 
 }
@@ -220,7 +226,7 @@ void uthread_exit()
 	// mutex until there are no running `kthreads`.
 	if (self == NULL) {
 		pthread_mutex_lock(&_shutdown_mutex);
-		_shutdown = true;
+		uthread_system_shutdown();
 		pthread_mutex_unlock(&_shutdown_mutex);
 		return;
 	}
@@ -295,6 +301,33 @@ void kthread_handoff(uthread_t* prev, uthread_t* next)
 
 
 /**
+ * Free any uthread system resources. If this has already been called, then nothing
+ * is done.
+ */
+void uthread_system_shutdown()
+{
+	if (_shutdown != true)
+	{
+		_shutdown = true;
+
+		HEAPdestroy(_waiting_uthreads);
+		_waiting_uthreads = NULL;
+		
+		for (kthread_t* kt = _kthreads; kt < _kthreads + _max_num_kthreads; kt++) {
+			kthread_destroy(kt);
+		}
+		free(_kthreads);
+		_kthreads = NULL;
+
+		// Note that there is nothing to free from _system_initializer_context,
+		// because its stack was never allocated.
+	}
+	// Otherwise, this function was already called, so there's nothing to do.
+}
+
+
+
+/**
  * Initializes `uthread`, such that it is ready to be run. When the `uthread` is
  * started running on a `kthread`, it will start by running the given `run_func()`.
  */
@@ -325,6 +358,7 @@ void uthread_destroy(uthread_t* ut)
 	assert(ut != NULL);
 	free(ut->ucontext.uc_stack.ss_sp);
 }
+
 
 
 /**
@@ -386,7 +420,7 @@ int kthread_create(kthread_t* kt, uthread_t* ut)
 
 	// Try using clone instead:
 	void *child_stack;
-	child_stack = (void *)malloc(CLONE_STACK_SIZE);
+	child_stack = kt->stack;
 	child_stack += CLONE_STACK_SIZE - 1;
 	int pid = clone(kthread_runner, child_stack, CLONE_VM|CLONE_FILES, kt);
 	assert(pid > 0);
@@ -430,6 +464,25 @@ void transfer_elapsed_time(kthread_t* kt, uthread_t* ut)
 
 
 /* Define minor helper functions. ************************************************/
+
+/**
+ * Initializes the given memory as a `kthread`. Aquires any resources necessary.
+ */
+void kthread_init(kthread_t* kt) {
+	kt->running = NULL;
+	kt->stack = (void *)malloc(CLONE_STACK_SIZE);
+}
+
+
+
+/**
+ * Frees any resources used by the given `kthread`.
+ */
+void kthread_destroy(kthread_t* kt) {
+	free(kt->stack);
+}
+
+
 
 /**
  * Returns a pointer to an unused slot in `_kthreads` (i.e. a `kthread_t*` which
