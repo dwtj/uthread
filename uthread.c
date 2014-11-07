@@ -113,6 +113,7 @@ void uthread_system_init(int max_num_kthreads)
 
 int uthread_create(void (*run_func)())
 {
+	puts("DEBUG: uthread_create()");
 	int rv;
 
 	pthread_mutex_lock(&_mutex);
@@ -129,11 +130,13 @@ int uthread_create(void (*run_func)())
 
 	if (_num_kthreads == _max_num_kthreads)
 	{
+		puts("DEBUG: uthread_create(): adding new `uthread` to the heap.");
 		// Add the new `uthread` to the heap.
 		HEAPinsert(_waiting_uthreads, (const void *) uthread);
 	}
 	else
 	{
+		puts("DEBUG: uthread_create(): making a new kthread to run this uthread");
 		// Make a new `kthread` to run this new `uthread` immediately.
 
 		assert(HEAPsize(_waiting_uthreads) == 0);  // There must not be waiting
@@ -143,6 +146,8 @@ int uthread_create(void (*run_func)())
 		kthread_t* kthread = find_inactive_kthread();
 		assert(kthread != NULL);  // There must be an inactive `kthread` if
 								  // `_num_kthreads` is less than `_max_num_kthreads`.
+
+		printf("DEBUG: uthread_create(): using kthread memory slot at %p\n", kthread);
 
 		rv = kthread_create(kthread, uthread);
 		_num_kthreads += 1;
@@ -180,6 +185,9 @@ void uthread_yield()
 
 		// Save the current `uthread` to the heap.
 		HEAPinsert(_waiting_uthreads, (void *) cur);
+
+		printf("DEBUG: uthread_yield(): kthread at %p is about to swap uthreads\n",
+				self);
 
 		// TODO: consider possibility of race conditions!
 		pthread_mutex_unlock(&_mutex);
@@ -234,6 +242,9 @@ void uthread_exit()
 
 		kthread_update_timestamps(self);
 
+		printf("DEBUG: uthread_exit(): kthread at %p is about to take on another uthread\n",
+				self);
+
 		// TODO: consider possibility of race conditions.
 		pthread_mutex_unlock(&_mutex);
 		setcontext(&(next->ucontext));
@@ -254,6 +265,8 @@ void uthread_exit()
 			pthread_mutex_unlock(&_shutdown_mutex);
 		}
 
+		printf("DEBUG: uthread_exit(): kthread at %p is exiting because no waiting uthreads. \n",
+				self);
 		pthread_mutex_unlock(&_mutex);
 		tgkill(self_tid, self_tgid, SIGKILL);
 		assert(false);  // Control should never reach here.

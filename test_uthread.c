@@ -52,7 +52,7 @@ void do_something()
 int main(int argc, char* argv[])
 {
     int i;
-    system_init(1);
+    system_init(3);
     setbuf(stdout,NULL);
     int pid = uthread_create(do_something);
 	uthread_exit();
