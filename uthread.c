@@ -48,6 +48,7 @@ typedef struct {
 
 int uthread_priority(const void* key1, const void* key2);
 void uthread_init(uthread_t* ut, void (*run_func)());
+void uthread_destroy(uthread_t* ut);
 int kthread_runner(void* ptr);
 void transfer_elapsed_time(kthread_t* kt, uthread_t* ut);
 void kthread_update_timestamps(kthread_t* kt);
@@ -235,6 +236,7 @@ void uthread_exit()
 
 	// Stop running the `prev` `uthread`, and clean up any references to it.
 	self->running = NULL;
+	uthread_destroy(prev);
 	free(prev);
 
 	// Check if a `uthread` can use this kthread.
@@ -311,6 +313,17 @@ void uthread_init(uthread_t* uthread, void (*run_func)())
 	// Initialize the running time.
 	struct timeval tv = { .tv_sec = 0, .tv_usec = 0 };
 	uthread->running_time = tv;
+}
+
+
+
+/**
+ * Frees any resources used by the given `uthread_t`.
+ */
+void uthread_destroy(uthread_t* ut)
+{
+	assert(ut != NULL);
+	free(ut->ucontext.uc_stack.ss_sp);
 }
 
 
