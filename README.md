@@ -1,12 +1,16 @@
 # uthread #
-## A Basic Many-To-Many User-to-Kernel Thread Library ##
 
-The `uthread` library is a cooperative user thread library with dynamic many-to-many mapping between user threads and kernel threads. The user code can choose the maximum number of kernel threads that will be run, then an arbitrary number of user threads can be created to run on this number of threads. See the header file (`uthread.h`) and the source code file (`uthread.c`) for details of the public interface.
+The `uthread` library is a cooperative user thread library. It performs dynamic many-to-many mappings between user threads and kernel threads.
 
-Invoke `make` to build the uthread library (`uthread.o`) and the test program (`test_uthread`).
+The user code first chooses the maximum number of kernel threads that will be run. Then, an arbitrary number of user threads can be created to run on this number of threads. See the header file, `uthread.h`, for details about the public interface.
 
-For exact demonstration of how to use the library, see the `test_uthread.c` and the `makefile`. Notice that you will need to
+Invoke `make` to build the uthread library, `uthread.o`, and the test program, `test_uthread`.
+
+For an exact demonstration of how to use the library, see the `test_uthread.c` and the `makefile`. Notice that you will need to
 
 - Include `uthread.h` in your application.
+- Compile the one dependency of `uthread.c`: `lib/heap.c`.
 - Compile `uthread.c` to object code.
-- Link your application with `uthread.o`.
+- Link your application with `uthread.o` and `heap.o`.
+
+(See `lib/README.md` for an attribution to the heap implementation's authors.)
