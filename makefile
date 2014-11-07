@@ -13,3 +13,4 @@ uthread.o : uthread.c
 
 clean :
 	rm -f *.o
+	rm -f test_uthread
