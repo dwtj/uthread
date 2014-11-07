@@ -75,7 +75,6 @@ int _max_num_kthreads;
 kthread_t* _kthreads;
 pthread_mutex_t _mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t _shutdown_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_attr_t* _default_pthread_attr = NULL;
 ucontext_t _system_initializer_context;
 
 
@@ -103,7 +102,6 @@ void uthread_system_init(int max_num_kthreads)
 	// Initialize some globals.
 	_num_kthreads = 0;
 	_max_num_kthreads = max_num_kthreads;
-	// TODO: initialize `_default_pthread_attr()`.
 	getcontext(&_system_initializer_context);
 
 	// The highest priority uthread record (i.e. the on with the lowest running
